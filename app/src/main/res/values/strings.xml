@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">Penniless</string>
+    <string name="sign_in_google">Sign in with Google</string>
+    <string name="tab_transactions">Trans.</string>
+    <string name="tab_stats">Stats</string>
+    <string name="tab_accounts">Accounts</string>
+    <string name="tab_more">More</string>
+    <string name="no_data_available">No data available.</string>
+    <string name="scan_receipt">Scan Receipt</string>
+    <string name="add_transaction">Add Transaction</string>
+    <string name="export_csv">Export data to CSV</string>
+    <string name="camera_permission_rationale">Camera permission is needed to snap live receipt photos. You can also upload any receipt from your Photo Library without camera access.</string>
+    <string name="voice_record">Voice Entry</string>
+    <string name="mic_permission_rationale">Microphone permission lets you speak transactions in any language. You can also type a spoken phrase if microphone access is unavailable.</string>
+</resources>

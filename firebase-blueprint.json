@@ -1,0 +1,120 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User preferences, default currency, monthly budget target, and demo seeding state.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "displayName": { "type": "string", "description": "Editable display name." },
+        "email": { "type": "string", "description": "User email address." },
+        "currency": { "type": "string", "description": "Default ISO currency code (e.g. EUR, USD, BDT)." },
+        "monthlyBudget": { "type": "number", "description": "Target monthly spending budget." },
+        "seededDemoData": { "type": "boolean", "description": "Whether initial demo data has been seeded." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on last update." }
+      },
+      "required": ["userId", "displayName", "email", "currency", "monthlyBudget", "seededDemoData", "createdAt", "updatedAt"]
+    },
+    "FinanceAccount": {
+      "title": "FinanceAccount",
+      "description": "Payment card, bank account, cash wallet, or savings account.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "accountType": { "type": "string", "enum": ["CREDIT_CARD", "BANK", "CASH", "SAVINGS"] },
+        "balance": { "type": "number" },
+        "creditLimit": { "type": "number" },
+        "dueDayOfMonth": { "type": "integer" },
+        "colorHex": { "type": "string" },
+        "lastFourDigits": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name", "accountType", "balance", "creditLimit", "dueDayOfMonth", "colorHex", "lastFourDigits", "createdAt", "updatedAt"]
+    },
+    "FinanceCategory": {
+      "title": "FinanceCategory",
+      "description": "Customizable expense or income category.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "txType": { "type": "string", "enum": ["EXPENSE", "INCOME"] },
+        "iconKey": { "type": "string" },
+        "colorHex": { "type": "string" },
+        "sortOrder": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name", "txType", "iconKey", "colorHex", "sortOrder", "createdAt", "updatedAt"]
+    },
+    "FinanceTransaction": {
+      "title": "FinanceTransaction",
+      "description": "Financial transaction ledger entry with optional AI receipt extraction metadata.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "txType": { "type": "string", "enum": ["EXPENSE", "INCOME", "TRANSFER"] },
+        "amount": { "type": "number" },
+        "currency": { "type": "string" },
+        "dateIso": { "type": "string", "description": "YYYY-MM-DD transaction date." },
+        "merchant": { "type": "string" },
+        "categoryName": { "type": "string" },
+        "subcategory": { "type": "string" },
+        "accountId": { "type": "string" },
+        "accountName": { "type": "string" },
+        "note": { "type": "string" },
+        "needsReview": { "type": "boolean" },
+        "receiptThumbnail": { "type": "string", "description": "Optional compressed Base64 JPEG receipt thumbnail." },
+        "aiConfidence": { "type": "number", "description": "Optional AI extraction confidence score (0.0-1.0)." },
+        "lineItems": { "type": "array", "description": "Optional parsed receipt line items (max 50)." },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "txType", "amount", "currency", "dateIso", "merchant", "categoryName", "subcategory", "accountId", "accountName", "note", "needsReview", "createdAt", "updatedAt"]
+    },
+    "RecurringBill": {
+      "title": "RecurringBill",
+      "description": "Fixed monthly expense or subscription reminder.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "amount": { "type": "number" },
+        "categoryName": { "type": "string" },
+        "accountId": { "type": "string" },
+        "accountName": { "type": "string" },
+        "dayOfMonth": { "type": "integer" },
+        "autoPay": { "type": "boolean" },
+        "lastPaidMonth": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "amount", "categoryName", "accountId", "accountName", "dayOfMonth", "autoPay", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "UserProfile" },
+      "description": "Per-user profile and finance app preferences."
+    },
+    "/users/{userId}/accounts/{accountId}": {
+      "schema": { "$ref": "FinanceAccount" },
+      "description": "User payment cards, bank accounts, and cash wallets."
+    },
+    "/users/{userId}/categories/{categoryId}": {
+      "schema": { "$ref": "FinanceCategory" },
+      "description": "User expense and income categories."
+    },
+    "/users/{userId}/transactions/{transactionId}": {
+      "schema": { "$ref": "FinanceTransaction" },
+      "description": "User financial ledger transactions."
+    },
+    "/users/{userId}/recurringBills/{billId}": {
+      "schema": { "$ref": "RecurringBill" },
+      "description": "User recurring bills and statement reminders."
+    }
+  }
+}

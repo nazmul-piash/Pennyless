@@ -1,0 +1,6 @@
+{
+  "name": "Penniless",
+  "description": "Personal finance and expense tracker with Money Manager-style ledgers, analytics, card management, and Gemini AI receipt scanning.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
