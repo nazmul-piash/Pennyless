@@ -119,7 +119,8 @@ fun StatementImportModalSheet(
 
                 is StatementImportUiState.Parsing -> {
                     StatementLoadingContent(
-                        title = if (state.isPdf) "Reading PDF Statement with Gemini AI..." else "Parsing CSV Statement...",
+                        title = state.progressMessage
+                            ?: if (state.isPdf) "Reading PDF Statement with Gemini AI..." else "Parsing CSV Statement...",
                         subtitle = "Pure in-memory parsing — \"${state.fileName}\" will never be cached or stored."
                     )
                 }

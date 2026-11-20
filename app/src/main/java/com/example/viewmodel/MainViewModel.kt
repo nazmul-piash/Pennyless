@@ -24,6 +24,7 @@ import com.example.util.YearMonthKey
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -70,7 +71,11 @@ sealed interface ScannerUiState {
 
 sealed interface StatementImportUiState {
     data object Idle : StatementImportUiState
-    data class Parsing(val fileName: String, val isPdf: Boolean) : StatementImportUiState
+    data class Parsing(
+        val fileName: String,
+        val isPdf: Boolean,
+        val progressMessage: String? = null
+    ) : StatementImportUiState
     data class Preview(
         val fileName: String,
         val isPdf: Boolean,
@@ -115,6 +120,7 @@ class MainViewModel(
 
     private val _statementImportState = MutableStateFlow<StatementImportUiState>(StatementImportUiState.Idle)
     val statementImportState: StateFlow<StatementImportUiState> = _statementImportState.asStateFlow()
+    private var statementImportJob: Job? = null
 
     private val _actionMessage = MutableStateFlow<String?>(null)
     val actionMessage: StateFlow<String?> = _actionMessage.asStateFlow()
@@ -550,11 +556,13 @@ class MainViewModel(
         defaultCurrency: String
     ) {
         val appContext = context.applicationContext
+        statementImportJob?.cancel()
         _statementImportState.value = StatementImportUiState.Parsing(
             fileName = "Statement",
-            isPdf = false
+            isPdf = false,
+            progressMessage = "Reading file in memory..."
         )
-        viewModelScope.launch {
+        statementImportJob = viewModelScope.launch {
             var docBytes: ByteArray? = null
             try {
                 val doc = withContext(Dispatchers.IO) {
@@ -563,7 +571,12 @@ class MainViewModel(
                 docBytes = doc.bytes
                 _statementImportState.value = StatementImportUiState.Parsing(
                     fileName = doc.displayName,
-                    isPdf = doc.isPdf
+                    isPdf = doc.isPdf,
+                    progressMessage = if (doc.isPdf) {
+                        "Starting PDF extraction with Gemini AI..."
+                    } else {
+                        "Parsing CSV statement..."
+                    }
                 )
 
                 val todayIso = DateUtils.todayIso()
@@ -571,7 +584,14 @@ class MainViewModel(
                     ReceiptAiService.analyzeStatementPdf(
                         pdfBytes = doc.bytes,
                         defaultCurrency = defaultCurrency,
-                        fallbackDateIso = todayIso
+                        fallbackDateIso = todayIso,
+                        onProgress = { msg ->
+                            _statementImportState.value = StatementImportUiState.Parsing(
+                                fileName = doc.displayName,
+                                isPdf = true,
+                                progressMessage = msg
+                            )
+                        }
                     ).getOrThrow()
                 } else {
                     val rows = withContext(Dispatchers.IO) {
@@ -628,6 +648,8 @@ class MainViewModel(
     }
 
     fun dismissStatementImport() {
+        statementImportJob?.cancel()
+        statementImportJob = null
         _statementImportState.value = StatementImportUiState.Idle
     }
 

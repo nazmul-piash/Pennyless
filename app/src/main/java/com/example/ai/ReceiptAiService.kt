@@ -13,15 +13,19 @@ import com.example.model.TxType
 import com.example.util.StatementParser
 import com.google.firebase.Firebase
 import com.google.firebase.ai.ai
+import com.google.firebase.ai.type.RequestOptions
 import com.google.firebase.ai.type.Schema
+import com.google.firebase.ai.type.ThinkingLevel
 import com.google.firebase.ai.type.content
 import com.google.firebase.ai.type.generationConfig
+import com.google.firebase.ai.type.thinkingConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import kotlin.math.abs
@@ -179,10 +183,8 @@ object ReceiptAiService {
                         "category" to Schema.enumeration(
                             values = primaryCategories,
                             description = "Best matching primary category"
-                        ),
-                        "note" to Schema.string("Optional concise 3-6 word ledger note", nullable = true)
-                    ),
-                    optionalProperties = listOf("note")
+                        )
+                    )
                 ),
                 description = "All line-item financial transactions extracted from the PDF statement"
             )
@@ -196,7 +198,11 @@ object ReceiptAiService {
             generationConfig = generationConfig {
                 responseMimeType = "application/json"
                 responseSchema = receiptSchema
-            }
+                thinkingConfig = thinkingConfig {
+                    thinkingLevel = ThinkingLevel.MINIMAL
+                }
+            },
+            requestOptions = RequestOptions(timeoutInMillis = 90_000L)
         )
     }
 
@@ -206,7 +212,11 @@ object ReceiptAiService {
             generationConfig = generationConfig {
                 responseMimeType = "application/json"
                 responseSchema = voiceExtractionSchema
-            }
+                thinkingConfig = thinkingConfig {
+                    thinkingLevel = ThinkingLevel.MINIMAL
+                }
+            },
+            requestOptions = RequestOptions(timeoutInMillis = 90_000L)
         )
     }
 
@@ -216,7 +226,12 @@ object ReceiptAiService {
             generationConfig = generationConfig {
                 responseMimeType = "application/json"
                 responseSchema = statementSchema
-            }
+                maxOutputTokens = 16384
+                thinkingConfig = thinkingConfig {
+                    thinkingLevel = ThinkingLevel.MINIMAL
+                }
+            },
+            requestOptions = RequestOptions(timeoutInMillis = 180_000L)
         )
     }
 
@@ -248,10 +263,10 @@ object ReceiptAiService {
                 5. Set confidence_score (0.0 to 1.0). If any text is blurry, cropped, or uncertain, set needs_manual_review to true and explain in review_reason.
             """.trimIndent()
 
-            val response = withTimeout(60_000L) {
+            val response = withTimeout(90_000L) {
                 model.generateContent(
                     content {
-                        inlineData(jpegBytes!!, "image/jpeg")
+                        inlineData(jpegBytes, "image/jpeg")
                         text(prompt)
                     }
                 )
@@ -285,7 +300,7 @@ object ReceiptAiService {
             Result.success(extracted to thumbnailBase64)
         } catch (e: TimeoutCancellationException) {
             Log.e(TAG, "Receipt scan timed out", e)
-            Result.failure(IllegalStateException("Receipt scan timed out after 60 seconds. Please try again."))
+            Result.failure(IllegalStateException("Receipt scan timed out after 90 seconds. Please try again."))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -299,92 +314,234 @@ object ReceiptAiService {
     suspend fun analyzeStatementPdf(
         pdfBytes: ByteArray,
         defaultCurrency: String,
-        fallbackDateIso: String
+        fallbackDateIso: String,
+        onProgress: (String) -> Unit = {}
     ): Result<Pair<String?, List<ImportedStatementRow>>> = withContext(Dispatchers.IO) {
+        val accumulated = StringBuilder()
         try {
             require(pdfBytes.isNotEmpty()) { "PDF statement is empty." }
             require(pdfBytes.size <= StatementParser.MAX_STATEMENT_BYTES) {
                 "PDF exceeds 18 MB limit for inline statement parsing."
             }
+            onProgress("Preparing secure PDF request...")
             verifyAppCheckAndAuthState()
 
             val prompt = """
-                You are a financial statement extraction engine for a personal finance app.
-                Extract every financial transaction row from this bank or credit card PDF statement.
+                Extract all transaction rows from this bank or credit card PDF statement.
                 Rules:
-                1. Ignore opening/closing balance summary lines, headers, and legal footers; extract actual transactions only.
-                2. Format every transaction date strictly as YYYY-MM-DD (convert European DD.MM.YYYY accurately; fallback to $fallbackDateIso only if year/month missing).
-                3. Output amount as a positive decimal number and set type to "Expense" for purchases/charges/fees or "Income" for deposits/refunds/card repayments.
-                4. Normalize currency to a 3-letter code (default to $defaultCurrency if omitted).
-                5. Map each row to the closest primary category enum and include the issuer/card name in detected_account_hint if visible (e.g. TF Bank Mastercard Gold, Extrakarte).
+                1. Ignore opening/closing balances, totals, headers, and legal footers.
+                2. Format every date as YYYY-MM-DD (convert DD.MM.YYYY accurately; fallback to $fallbackDateIso only if missing).
+                3. Use a positive decimal for amount; set type to "Expense" for purchases/charges/fees or "Income" for deposits/refunds/repayments.
+                4. Use a 3-letter ISO currency code (default $defaultCurrency).
+                5. Pick the closest primary category and include the issuer/card name in detected_account_hint if shown.
             """.trimIndent()
 
-            val response = withTimeout(60_000L) {
-                statementModel.generateContent(
+            onProgress("Uploading PDF & reading pages...")
+            var lastReportedCount = -1
+            withTimeout(180_000L) {
+                statementModel.generateContentStream(
                     content {
                         inlineData(pdfBytes, "application/pdf")
                         text(prompt)
                     }
-                )
-            }
-
-            val rawJson = response.text
-                ?: return@withContext Result.failure(IllegalStateException("Gemini returned an empty response for the PDF statement."))
-
-            val json = JSONObject(rawJson)
-            val accountHint = if (json.isNull("detected_account_hint")) null else {
-                json.optString("detected_account_hint", "").trim().takeIf { it.isNotEmpty() }
-            }
-            val arr = json.optJSONArray("transactions") ?: JSONArray()
-            val rows = buildList {
-                for (i in 0 until arr.length()) {
-                    val obj = arr.optJSONObject(i) ?: continue
-                    val amount = abs(obj.optDouble("amount", 0.0))
-                    if (amount.isNaN() || amount < 0.005) continue
-                    val rawDate = obj.optString("date", fallbackDateIso)
-                    val dateIso = StatementParser.normalizeDateToIso(rawDate, fallbackDateIso) ?: fallbackDateIso
-                    val merchant = obj.optString("merchant", "Statement Entry").trim().ifBlank { "Statement Entry" }.take(80)
-                    val currency = obj.optString("currency", defaultCurrency).trim().ifBlank { defaultCurrency }.take(8)
-                    val rawType = obj.optString("type", "Expense")
-                    val txType = if (rawType.equals("Income", ignoreCase = true)) TxType.INCOME else TxType.EXPENSE
-                    val rawCat = obj.optString("category", "Other")
-                    val category = if (rawCat in primaryCategories) rawCat else StatementParser.inferCategory(merchant, rawCat, txType)
-                    val note = if (obj.isNull("note")) "PDF statement import" else {
-                        obj.optString("note", "PDF statement import").trim().ifBlank { "PDF statement import" }.take(180)
+                ).collect { chunk ->
+                    val piece = chunk.text.orEmpty()
+                    if (piece.isNotEmpty()) {
+                        accumulated.append(piece)
+                        val approxCount = countOccurrences(accumulated, "\"merchant\"")
+                        if (approxCount > lastReportedCount) {
+                            lastReportedCount = approxCount
+                            onProgress(
+                                if (approxCount == 0) {
+                                    "Reading PDF statement with Gemini AI..."
+                                } else {
+                                    "Extracting transactions... ($approxCount found)"
+                                }
+                            )
+                        }
                     }
-
-                    add(
-                        ImportedStatementRow(
-                            id = "pdf_${i}_${dateIso}_$amount",
-                            dateIso = dateIso,
-                            merchant = merchant,
-                            amount = amount,
-                            currency = currency,
-                            txType = txType.name,
-                            categoryName = category,
-                            subcategory = "PDF Statement",
-                            note = note,
-                            selected = true
-                        )
-                    )
                 }
             }
 
-            if (rows.isEmpty()) {
+            val rawJson = accumulated.toString()
+            if (rawJson.isBlank()) {
+                return@withContext Result.failure(
+                    IllegalStateException("Gemini returned an empty response for the PDF statement.")
+                )
+            }
+
+            val parsed = try {
+                parseStatementResponseJson(rawJson, defaultCurrency, fallbackDateIso)
+            } catch (e: JSONException) {
+                Log.w(TAG, "Statement JSON truncated; recovering completed rows", e)
+                recoverPartialStatementJson(rawJson, defaultCurrency, fallbackDateIso)
+                    ?: throw e
+            }
+
+            if (parsed.second.isEmpty()) {
                 return@withContext Result.failure(
                     IllegalStateException("No transactions could be extracted from this PDF statement.")
                 )
             }
-            Result.success(accountHint to rows)
+            Result.success(parsed)
         } catch (e: TimeoutCancellationException) {
-            Log.e(TAG, "PDF statement parsing timed out", e)
-            Result.failure(IllegalStateException("PDF statement extraction timed out after 60 seconds. Please try again."))
+            val recovered = recoverPartialStatementJson(accumulated.toString(), defaultCurrency, fallbackDateIso)
+            if (recovered != null && recovered.second.isNotEmpty()) {
+                Log.w(TAG, "PDF stream timed out after 180s; recovered ${recovered.second.size} rows", e)
+                Result.success(recovered)
+            } else {
+                Log.e(TAG, "PDF statement parsing timed out", e)
+                Result.failure(
+                    IllegalStateException(
+                        "PDF statement extraction timed out after 180 seconds. Try exporting CSV from your bank or splitting very large multi-month PDFs."
+                    )
+                )
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "PDF statement extraction failed", e)
             Result.failure(IllegalStateException(formatAiTokenError(e), e))
         }
+    }
+
+    internal fun parseStatementResponseJson(
+        rawJson: String,
+        defaultCurrency: String,
+        fallbackDateIso: String
+    ): Pair<String?, List<ImportedStatementRow>> {
+        val json = JSONObject(rawJson)
+        val accountHint = if (json.isNull("detected_account_hint")) null else {
+            json.optString("detected_account_hint", "").trim().takeIf { it.isNotEmpty() }
+        }
+        val arr = json.optJSONArray("transactions") ?: JSONArray()
+        val rows = buildList {
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                mapStatementJsonObject(obj, i, defaultCurrency, fallbackDateIso)?.let { add(it) }
+            }
+        }
+        return accountHint to rows
+    }
+
+    internal fun recoverPartialStatementJson(
+        partialText: String,
+        defaultCurrency: String,
+        fallbackDateIso: String
+    ): Pair<String?, List<ImportedStatementRow>>? {
+        if (partialText.isBlank()) return null
+
+        val hintRegex = Regex("\"detected_account_hint\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"")
+        val accountHint = hintRegex.find(partialText)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.replace("\\\"", "\"")
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+
+        val txKeyIdx = partialText.indexOf("\"transactions\"")
+        if (txKeyIdx < 0) return null
+        val arrayStart = partialText.indexOf('[', txKeyIdx)
+        if (arrayStart < 0) return null
+
+        val rows = mutableListOf<ImportedStatementRow>()
+        var depth = 0
+        var objStart = -1
+        var inString = false
+        var escaped = false
+
+        for (idx in (arrayStart + 1) until partialText.length) {
+            val ch = partialText[idx]
+            if (escaped) {
+                escaped = false
+                continue
+            }
+            if (inString) {
+                if (ch == '\\') {
+                    escaped = true
+                } else if (ch == '"') {
+                    inString = false
+                }
+                continue
+            }
+            when (ch) {
+                '"' -> inString = true
+                '{' -> {
+                    if (depth == 0) objStart = idx
+                    depth++
+                }
+                '}' -> {
+                    if (depth > 0) {
+                        depth--
+                        if (depth == 0 && objStart >= 0) {
+                            val objSlice = partialText.substring(objStart, idx + 1)
+                            try {
+                                val obj = JSONObject(objSlice)
+                                mapStatementJsonObject(
+                                    obj = obj,
+                                    index = rows.size,
+                                    defaultCurrency = defaultCurrency,
+                                    fallbackDateIso = fallbackDateIso
+                                )?.let { rows.add(it) }
+                            } catch (_: JSONException) {
+                                // Ignore incomplete/malformed trailing object
+                            }
+                            objStart = -1
+                        }
+                    }
+                }
+                ']' -> if (depth == 0) break
+            }
+        }
+        return if (rows.isEmpty()) null else (accountHint to rows)
+    }
+
+    private fun mapStatementJsonObject(
+        obj: JSONObject,
+        index: Int,
+        defaultCurrency: String,
+        fallbackDateIso: String
+    ): ImportedStatementRow? {
+        val amount = abs(obj.optDouble("amount", 0.0))
+        if (amount.isNaN() || amount < 0.005) return null
+        val rawDate = obj.optString("date", fallbackDateIso)
+        val dateIso = StatementParser.normalizeDateToIso(rawDate, fallbackDateIso) ?: fallbackDateIso
+        val merchant = obj.optString("merchant", "Statement Entry").trim().ifBlank { "Statement Entry" }.take(80)
+        val currency = obj.optString("currency", defaultCurrency).trim().ifBlank { defaultCurrency }.take(8)
+        val rawType = obj.optString("type", "Expense")
+        val txType = if (rawType.equals("Income", ignoreCase = true)) TxType.INCOME else TxType.EXPENSE
+        val rawCat = obj.optString("category", "Other")
+        val category = if (rawCat in primaryCategories) rawCat else StatementParser.inferCategory(merchant, rawCat, txType)
+        val note = if (obj.isNull("note")) "PDF statement import" else {
+            obj.optString("note", "PDF statement import").trim().ifBlank { "PDF statement import" }.take(180)
+        }
+
+        return ImportedStatementRow(
+            id = "pdf_${index}_${dateIso}_$amount",
+            dateIso = dateIso,
+            merchant = merchant,
+            amount = amount,
+            currency = currency,
+            txType = txType.name,
+            categoryName = category,
+            subcategory = "PDF Statement",
+            note = note,
+            selected = true
+        )
+    }
+
+    private fun countOccurrences(text: CharSequence, target: String): Int {
+        if (target.isEmpty()) return 0
+        var count = 0
+        var idx = 0
+        val str = text.toString()
+        while (true) {
+            val found = str.indexOf(target, idx)
+            if (found < 0) break
+            count++
+            idx = found + target.length
+        }
+        return count
     }
 
     suspend fun analyzeVoiceAudio(
@@ -398,7 +555,7 @@ object ReceiptAiService {
             require(audioBytes.isNotEmpty()) { "Audio recording is empty." }
             verifyAppCheckAndAuthState()
             val prompt = buildVoiceSystemPrompt(defaultCurrency, todayIso, yesterdayIso, accountNames)
-            val response = withTimeout(60_000L) {
+            val response = withTimeout(90_000L) {
                 voiceModel.generateContent(
                     content {
                         inlineData(audioBytes, "audio/mp4")
@@ -411,7 +568,7 @@ object ReceiptAiService {
             Result.success(parseVoiceExtraction(JSONObject(rawJson), defaultCurrency, todayIso))
         } catch (e: TimeoutCancellationException) {
             Log.e(TAG, "Voice audio processing timed out", e)
-            Result.failure(IllegalStateException("Voice processing timed out after 60 seconds. Please try again."))
+            Result.failure(IllegalStateException("Voice processing timed out after 90 seconds. Please try again."))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -433,7 +590,7 @@ object ReceiptAiService {
             verifyAppCheckAndAuthState()
             val prompt = buildVoiceSystemPrompt(defaultCurrency, todayIso, yesterdayIso, accountNames) +
                 "\n\nUser utterance text:\n\"${spokenText.trim()}\""
-            val response = withTimeout(60_000L) {
+            val response = withTimeout(90_000L) {
                 voiceModel.generateContent(prompt)
             }
             val rawJson = response.text
@@ -441,7 +598,7 @@ object ReceiptAiService {
             Result.success(parseVoiceExtraction(JSONObject(rawJson), defaultCurrency, todayIso))
         } catch (e: TimeoutCancellationException) {
             Log.e(TAG, "Voice text processing timed out", e)
-            Result.failure(IllegalStateException("Processing timed out after 60 seconds. Please try again."))
+            Result.failure(IllegalStateException("Processing timed out after 90 seconds. Please try again."))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -487,7 +644,7 @@ object ReceiptAiService {
                 Merge the user's answer into the transaction fields, keep everything else intact, and remove any resolved field from missing_fields and clarification_questions. If everything required (especially total_amount > 0, transaction_type, primary_category) is now clear, return empty missing_fields and empty clarification_questions.
             """.trimIndent()
 
-            val response = withTimeout(60_000L) {
+            val response = withTimeout(90_000L) {
                 if (followUpAudioBytes != null) {
                     voiceModel.generateContent(
                         content {
@@ -504,7 +661,7 @@ object ReceiptAiService {
             Result.success(parseVoiceExtraction(JSONObject(rawJson), defaultCurrency, todayIso))
         } catch (e: TimeoutCancellationException) {
             Log.e(TAG, "Voice clarification timed out", e)
-            Result.failure(IllegalStateException("Clarification timed out after 60 seconds. Please try again."))
+            Result.failure(IllegalStateException("Clarification timed out after 90 seconds. Please try again."))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
