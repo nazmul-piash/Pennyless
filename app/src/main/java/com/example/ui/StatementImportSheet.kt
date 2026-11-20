@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.CheckBox
@@ -56,11 +57,13 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.firebase.isAppCheckErrorMessage
 import com.example.model.FinanceAccount
 import com.example.model.FinanceCategory
 import com.example.model.ImportedStatementRow
 import com.example.model.TxType
 import com.example.model.formatMoney
+import com.example.ui.components.AppCheckDebugHelpCard
 import com.example.ui.components.categoryColorForName
 import com.example.ui.components.categoryIconForName
 import com.example.ui.theme.BlueIncome
@@ -130,13 +133,17 @@ fun StatementImportModalSheet(
 
                 is StatementImportUiState.Error -> {
                     Surface(
-                        shape = RoundedCornerShape(18.dp),
+                        shape = RoundedCornerShape(20.dp),
                         color = Color.White,
                         tonalElevation = 1.dp,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
-                            modifier = Modifier.padding(20.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 560.dp)
+                                .verticalScroll(rememberScrollState())
+                                .padding(20.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
@@ -164,6 +171,9 @@ fun StatementImportModalSheet(
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = SlateSecondary
                             )
+                            if (isAppCheckErrorMessage(state.message)) {
+                                AppCheckDebugHelpCard(showCsvHint = true)
+                            }
                             Button(
                                 onClick = onDismiss,
                                 shape = RoundedCornerShape(14.dp),

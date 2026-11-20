@@ -40,6 +40,7 @@ import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.PrivacyTip
 import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material.icons.outlined.UploadFile
+import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -70,7 +71,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.credentials.CredentialManager
+import com.example.BuildConfig
+import com.example.firebase.getAppCheckDebugSecret
+import com.example.firebase.saveAppCheckDebugSecret
 import com.example.firebase.signOutUser
+import com.example.firebase.testAppCheckAttestation
 import com.example.model.FinanceAccount
 import com.example.model.FinanceCategory
 import com.example.model.FinanceDashboardSnapshot
@@ -78,6 +83,7 @@ import com.example.model.RecurringBill
 import com.example.model.TxType
 import com.example.model.formatMoney
 import com.example.model.parseHexColor
+import com.example.ui.components.AppCheckDebugHelpCard
 import com.example.ui.components.categoryIconForKey
 import com.example.ui.theme.AmberSoftBg
 import com.example.ui.theme.AmberWarning
@@ -94,6 +100,7 @@ import com.example.ui.theme.MidnightSlate
 import com.example.ui.theme.SlateSecondary
 import com.example.ui.theme.SurfaceGroupedBg
 import com.example.util.DateUtils
+import kotlinx.coroutines.launch
 
 private enum class LegalModalType { PRIVACY, TERMS, HELP }
 
@@ -122,6 +129,7 @@ fun MoreScreen(
     var showCategoryManager by remember { mutableStateOf(false) }
     var showBillsManager by remember(openBillsInitially) { mutableStateOf(openBillsInitially) }
     var showResetConfirm by remember { mutableStateOf(false) }
+    var showAppCheckDialog by remember { mutableStateOf(false) }
     var activeLegalModal by remember { mutableStateOf<LegalModalType?>(null) }
 
     val profile = snapshot.profile
@@ -376,6 +384,22 @@ fun MoreScreen(
                             onClick = { activeLegalModal = LegalModalType.HELP },
                             testTag = "help_row"
                         )
+                        if (BuildConfig.DEBUG) {
+                            HorizontalDivider(
+                                thickness = 0.75.dp,
+                                color = DividerHairline,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+                            SettingsRowItem(
+                                icon = Icons.Outlined.VerifiedUser,
+                                iconTint = BlueIncome,
+                                iconBg = BlueSoftBg,
+                                title = "AI & App Check Debug Setup",
+                                subtitle = "View, copy, or test device debug token",
+                                onClick = { showAppCheckDialog = true },
+                                testTag = "appcheck_diagnostics_row"
+                            )
+                        }
                     }
                 }
             }
@@ -465,6 +489,10 @@ fun MoreScreen(
             type = legal,
             onDismiss = { activeLegalModal = null }
         )
+    }
+
+    if (showAppCheckDialog) {
+        AppCheckDiagnosticsDialog(onDismiss = { showAppCheckDialog = false })
     }
 }
 
@@ -936,6 +964,96 @@ private fun LegalInfoDialog(type: LegalModalType, onDismiss: () -> Unit) {
         text = { Text(body, style = MaterialTheme.typography.bodyMedium, color = SlateSecondary) },
         confirmButton = {
             TextButton(onClick = onDismiss) { Text("Close", color = CoralPrimary) }
+        }
+    )
+}
+
+@Composable
+private fun AppCheckDiagnosticsDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var customToken by remember { mutableStateOf(getAppCheckDebugSecret(context).orEmpty()) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+    var statusIsSuccess by remember { mutableStateOf(false) }
+    var isTesting by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("AI & App Check Debug Setup", style = MaterialTheme.typography.titleLarge) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                AppCheckDebugHelpCard()
+
+                OutlinedTextField(
+                    value = customToken,
+                    onValueChange = { customToken = it },
+                    label = { Text("Or Paste Registered Debug Token") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            val saved = saveAppCheckDebugSecret(context, customToken)
+                            statusIsSuccess = saved
+                            statusMessage = if (saved) {
+                                "Saved token! Tap Verify Token or restart the app to apply."
+                            } else {
+                                "Please enter a non-empty UUID token."
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MidnightSlate),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Save Token")
+                    }
+                    Button(
+                        onClick = {
+                            if (!isTesting) {
+                                isTesting = true
+                                statusMessage = "Testing App Check attestation..."
+                                scope.launch {
+                                    val result = testAppCheckAttestation()
+                                    statusIsSuccess = result.isSuccess
+                                    statusMessage = result.getOrElse { it.localizedMessage ?: "Verification failed." }
+                                    isTesting = false
+                                }
+                            }
+                        },
+                        enabled = !isTesting,
+                        colors = ButtonDefaults.buttonColors(containerColor = BlueIncome),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(if (isTesting) "Testing..." else "Verify Now")
+                    }
+                }
+
+                statusMessage?.let { msg ->
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (statusIsSuccess) EmeraldSoftBg else CoralSoftBg,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = msg,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (statusIsSuccess) EmeraldHealthy else CoralPrimary,
+                            modifier = Modifier.padding(12.dp)
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Done", color = CoralPrimary) }
         }
     )
 }

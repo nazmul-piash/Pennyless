@@ -85,6 +85,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import com.example.firebase.isAppCheckErrorMessage
 import com.example.model.AccountType
 import com.example.model.ExtractedReceiptResult
 import com.example.model.FinanceAccount
@@ -93,6 +94,7 @@ import com.example.model.FinanceTransaction
 import com.example.model.ReceiptLineItem
 import com.example.model.TxType
 import com.example.model.formatMoney
+import com.example.ui.components.AppCheckDebugHelpCard
 import com.example.ui.theme.AmberSoftBg
 import com.example.ui.theme.AmberWarning
 import com.example.ui.theme.BlueIncome
@@ -274,6 +276,7 @@ fun ReceiptScannerModal(
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
                                 .padding(20.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center
@@ -285,15 +288,15 @@ fun ReceiptScannerModal(
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(220.dp)
+                                        .height(200.dp)
                                         .clip(RoundedCornerShape(16.dp))
                                         .border(1.dp, DividerHairline, RoundedCornerShape(16.dp))
                                 )
-                                Spacer(modifier = Modifier.height(16.dp))
+                                Spacer(modifier = Modifier.height(14.dp))
                             }
                             Surface(
                                 color = CoralSoftBg,
-                                shape = RoundedCornerShape(14.dp),
+                                shape = RoundedCornerShape(16.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Column(
@@ -311,6 +314,10 @@ fun ReceiptScannerModal(
                                         color = MidnightInk
                                     )
                                 }
+                            }
+                            if (isAppCheckErrorMessage(scannerState.message)) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                AppCheckDebugHelpCard()
                             }
                             Spacer(modifier = Modifier.height(16.dp))
                             Button(
