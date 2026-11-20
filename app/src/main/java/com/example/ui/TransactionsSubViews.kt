@@ -1,5 +1,9 @@
 package com.example.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -58,6 +62,7 @@ import com.example.model.TxType
 import com.example.model.formatCompactMoney
 import com.example.model.formatMoney
 import com.example.ui.theme.BlueIncome
+import com.example.ui.theme.CardBorderSubtle
 import com.example.ui.theme.CoralPrimary
 import com.example.ui.theme.CoralSoftBg
 import com.example.ui.theme.DividerHairline
@@ -66,6 +71,7 @@ import com.example.ui.theme.MidnightSlate
 import com.example.ui.theme.SlateSecondary
 import com.example.ui.theme.SlateTertiary
 import com.example.ui.theme.SurfaceGroupedBg
+import com.example.ui.theme.SurfaceSoftTinted
 import com.example.ui.theme.SurfaceSubtle
 import com.example.util.DateUtils
 import com.example.util.YearMonthKey
@@ -377,53 +383,55 @@ fun MonthlySummaryView(
                 }
                 HorizontalDivider(thickness = 1.dp, color = DividerHairline)
 
-                if (isExpanded) {
-                    val weekBuckets = listOf(22..daysInM, 15..21, 8..14, 1..7)
-                    val todayDay = DateUtils.currentDayOfMonth()
-                    weekBuckets.forEach { range ->
-                        val weekTxs = monthTxs.filter { DateUtils.parseDayOfMonth(it.dateIso) in range }
-                        val wInc = weekTxs.filter { it.resolvedTxType == TxType.INCOME }.sumOf { it.amount }
-                        val wExp = weekTxs.filter { it.resolvedTxType == TxType.EXPENSE }.sumOf { it.amount }
-                        val isCurrentWeek = year == currentYm.year && month == currentYm.month && todayDay in range
+                AnimatedVisibility(visible = isExpanded) {
+                    Column {
+                        val weekBuckets = listOf(22..daysInM, 15..21, 8..14, 1..7)
+                        val todayDay = DateUtils.currentDayOfMonth()
+                        weekBuckets.forEach { range ->
+                            val weekTxs = monthTxs.filter { DateUtils.parseDayOfMonth(it.dateIso) in range }
+                            val wInc = weekTxs.filter { it.resolvedTxType == TxType.INCOME }.sumOf { it.amount }
+                            val wExp = weekTxs.filter { it.resolvedTxType == TxType.EXPENSE }.sumOf { it.amount }
+                            val isCurrentWeek = year == currentYm.year && month == currentYm.month && todayDay in range
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(if (isCurrentWeek) CoralSoftBg else SurfaceGroupedBg.copy(alpha = 0.4f))
-                                .clickable { onSelectMonth(month) }
-                                .padding(horizontal = 24.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "${range.first}.$month. ~ ${range.last}.$month.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MidnightInk,
-                                modifier = Modifier.weight(1.1f)
-                            )
-                            Text(
-                                text = formatMoney(wInc, currency),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = BlueIncome,
-                                textAlign = TextAlign.End,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Column(
-                                horizontalAlignment = Alignment.End,
-                                modifier = Modifier.weight(1f)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(if (isCurrentWeek) CoralSoftBg else SurfaceGroupedBg.copy(alpha = 0.4f))
+                                    .clickable { onSelectMonth(month) }
+                                    .padding(horizontal = 24.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = formatMoney(wExp, currency),
+                                    text = "${range.first}.$month. ~ ${range.last}.$month.",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = CoralPrimary
+                                    color = MidnightInk,
+                                    modifier = Modifier.weight(1.1f)
                                 )
                                 Text(
-                                    text = formatMoney(wInc - wExp, currency),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = SlateTertiary
+                                    text = formatMoney(wInc, currency),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = BlueIncome,
+                                    textAlign = TextAlign.End,
+                                    modifier = Modifier.weight(1f)
                                 )
+                                Column(
+                                    horizontalAlignment = Alignment.End,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        text = formatMoney(wExp, currency),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = CoralPrimary
+                                    )
+                                    Text(
+                                        text = formatMoney(wInc - wExp, currency),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = SlateTertiary
+                                    )
+                                }
                             }
+                            HorizontalDivider(thickness = 0.5.dp, color = DividerHairline)
                         }
-                        HorizontalDivider(thickness = 0.5.dp, color = DividerHairline)
                     }
                 }
             }
@@ -457,13 +465,14 @@ fun SummaryOverviewView(
     ) {
         item {
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(20.dp),
                 color = Color.White,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, DividerHairline, RoundedCornerShape(16.dp))
+                tonalElevation = 1.dp,
+                shadowElevation = 2.dp,
+                border = BorderStroke(0.5.dp, CardBorderSubtle),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             imageVector = Icons.Outlined.AccountBalanceWallet,
@@ -480,11 +489,10 @@ fun SummaryOverviewView(
                     }
 
                     Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = SurfaceGroupedBg,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(1.dp, DividerHairline, RoundedCornerShape(10.dp))
+                        shape = RoundedCornerShape(14.dp),
+                        color = SurfaceSoftTinted,
+                        border = BorderStroke(0.5.dp, CardBorderSubtle),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(
@@ -531,14 +539,20 @@ fun SummaryOverviewView(
         }
 
         item {
+            val animatedBudgetRatio by animateFloatAsState(
+                targetValue = budgetRatio,
+                animationSpec = tween(550),
+                label = "summary_budget_ratio"
+            )
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(20.dp),
                 color = Color.White,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, DividerHairline, RoundedCornerShape(16.dp))
+                tonalElevation = 1.dp,
+                shadowElevation = 2.dp,
+                border = BorderStroke(0.5.dp, CardBorderSubtle),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             imageVector = Icons.Outlined.EditNote,
@@ -595,13 +609,14 @@ fun SummaryOverviewView(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(22.dp)
-                                    .clip(RoundedCornerShape(6.dp))
+                                    .clip(RoundedCornerShape(8.dp))
                                     .background(SurfaceSubtle)
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .fillMaxWidth(budgetRatio)
+                                        .fillMaxWidth(animatedBudgetRatio)
                                         .height(22.dp)
+                                        .clip(RoundedCornerShape(8.dp))
                                         .background(if (budgetPercent > 90) CoralPrimary else BlueIncome)
                                 )
                                 Text(
@@ -638,26 +653,37 @@ fun SummaryOverviewView(
         }
 
         item {
-            OutlinedButton(
-                onClick = onExportCsv,
-                shape = RoundedCornerShape(14.dp),
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color.White,
+                tonalElevation = 1.dp,
+                shadowElevation = 1.5.dp,
+                border = BorderStroke(0.5.dp, CardBorderSubtle),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(50.dp)
+                    .height(52.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable { onExportCsv() }
                     .testTag("summary_export_button")
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.Description,
-                    contentDescription = null,
-                    tint = Color(0xFF10B981),
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Export data to CSV",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MidnightInk
-                )
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Description,
+                        contentDescription = null,
+                        tint = Color(0xFF10B981),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Export data to CSV",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MidnightInk
+                    )
+                }
             }
             Spacer(modifier = Modifier.height(90.dp))
         }

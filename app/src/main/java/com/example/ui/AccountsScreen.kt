@@ -1,7 +1,9 @@
 package com.example.ui
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -24,10 +26,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.SwapHoriz
+import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -61,12 +65,14 @@ import com.example.ui.components.accountIconForType
 import com.example.ui.theme.AmberSoftBg
 import com.example.ui.theme.AmberWarning
 import com.example.ui.theme.BlueIncome
+import com.example.ui.theme.BlueSoftBg
+import com.example.ui.theme.CardBorderSubtle
 import com.example.ui.theme.CoralPrimary
 import com.example.ui.theme.DividerHairline
 import com.example.ui.theme.MidnightInk
 import com.example.ui.theme.SlateSecondary
-import com.example.ui.theme.SlateTertiary
 import com.example.ui.theme.SurfaceGroupedBg
+import com.example.ui.theme.SurfaceSoftTinted
 import com.example.util.DateUtils
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -77,6 +83,7 @@ fun AccountsScreen(
     onSaveAccount: (FinanceAccount, () -> Unit) -> Unit,
     onDeleteAccount: (String) -> Unit,
     onTransfer: (FinanceAccount, FinanceAccount, Double, String, () -> Unit) -> Unit,
+    onImportStatement: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val currency = snapshot.profile.currency
@@ -179,13 +186,66 @@ fun AccountsScreen(
             contentPadding = PaddingValues(16.dp, 14.dp, 16.dp, 100.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            item(key = "import_statement_card") {
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = Color.White,
+                    tonalElevation = 1.dp,
+                    shadowElevation = 2.dp,
+                    border = BorderStroke(0.5.dp, CardBorderSubtle),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .clickable { onImportStatement() }
+                        .testTag("accounts_import_statement_button")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(BlueSoftBg),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.UploadFile,
+                                contentDescription = null,
+                                tint = BlueIncome,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Import Bank / Card Statement (PDF / CSV)",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MidnightInk
+                            )
+                            Text(
+                                text = "In-memory extraction with preview & zero file retention",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = SlateSecondary
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = SlateSecondary
+                        )
+                    }
+                }
+            }
+
             if (creditCards.isNotEmpty()) {
                 item(key = "hdr_cards") {
                     Text(
                         text = "CREDIT CARDS & LIMITS",
                         style = MaterialTheme.typography.labelMedium,
                         color = SlateSecondary,
-                        modifier = Modifier.padding(start = 4.dp)
+                        modifier = Modifier.padding(start = 4.dp, top = 4.dp)
                     )
                 }
                 items(creditCards, key = { it.id }) { card ->
@@ -270,23 +330,31 @@ private fun CreditCardAccountCard(
     val used = abs(account.balance.coerceAtMost(0.0))
     val limit = account.creditLimit.coerceAtLeast(1.0)
     val ratio = (used / limit).toFloat().coerceIn(0f, 1f)
+    val animatedRatio by animateFloatAsState(
+        targetValue = ratio,
+        animationSpec = tween(450),
+        label = "credit_limit_progress"
+    )
     val daysUntilDue = DateUtils.daysUntilDue(account.dueDayOfMonth)
     val isDueSoon = account.dueDayOfMonth > 0 && daysUntilDue <= 7
 
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(20.dp),
         color = Color.White,
+        tonalElevation = 1.dp,
+        shadowElevation = 2.dp,
+        border = BorderStroke(0.5.dp, CardBorderSubtle),
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, DividerHairline, RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(20.dp))
             .clickable { onClick() }
             .testTag("account_card_${account.id}")
     ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(42.dp)
                         .clip(CircleShape)
                         .background(accent.copy(alpha = 0.14f)),
                     contentAlignment = Alignment.Center
@@ -295,7 +363,7 @@ private fun CreditCardAccountCard(
                         imageVector = accountIconForType(account.resolvedType),
                         contentDescription = account.name,
                         tint = accent,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(21.dp)
                     )
                 }
                 Spacer(modifier = Modifier.width(12.dp))
@@ -312,7 +380,7 @@ private fun CreditCardAccountCard(
                 )
             }
 
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(
                         text = "Monthly Limit: ${formatMoney(account.creditLimit, currency)}",
@@ -326,24 +394,24 @@ private fun CreditCardAccountCard(
                     )
                 }
                 LinearProgressIndicator(
-                    progress = { ratio },
+                    progress = { animatedRatio },
                     color = if (ratio > 0.8f) CoralPrimary else accent,
                     trackColor = SurfaceGroupedBg,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(7.dp)
+                        .height(8.dp)
                         .clip(RoundedCornerShape(4.dp))
                 )
             }
 
             if (account.dueDayOfMonth > 0) {
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = if (isDueSoon) AmberSoftBg else SurfaceGroupedBg,
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isDueSoon) AmberSoftBg else SurfaceSoftTinted,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
@@ -375,21 +443,24 @@ private fun StandardAccountCard(
 ) {
     val accent = parseHexColor(account.colorHex, BlueIncome)
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(20.dp),
         color = Color.White,
+        tonalElevation = 1.dp,
+        shadowElevation = 2.dp,
+        border = BorderStroke(0.5.dp, CardBorderSubtle),
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, DividerHairline, RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(20.dp))
             .clickable { onClick() }
             .testTag("account_card_${account.id}")
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(18.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(42.dp)
                     .clip(CircleShape)
                     .background(accent.copy(alpha = 0.14f)),
                 contentAlignment = Alignment.Center
@@ -398,7 +469,7 @@ private fun StandardAccountCard(
                     imageVector = accountIconForType(account.resolvedType),
                     contentDescription = account.name,
                     tint = accent,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(21.dp)
                 )
             }
             Spacer(modifier = Modifier.width(12.dp))

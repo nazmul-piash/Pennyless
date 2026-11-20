@@ -1,5 +1,6 @@
 package com.example.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -38,6 +39,7 @@ import androidx.compose.material.icons.outlined.Gavel
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.PrivacyTip
 import androidx.compose.material.icons.outlined.RestartAlt
+import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -80,6 +82,8 @@ import com.example.ui.components.categoryIconForKey
 import com.example.ui.theme.AmberSoftBg
 import com.example.ui.theme.AmberWarning
 import com.example.ui.theme.BlueIncome
+import com.example.ui.theme.BlueSoftBg
+import com.example.ui.theme.CardBorderSubtle
 import com.example.ui.theme.CoralPrimary
 import com.example.ui.theme.CoralSoftBg
 import com.example.ui.theme.DividerHairline
@@ -104,6 +108,7 @@ fun MoreScreen(
     onSaveBill: (RecurringBill, () -> Unit) -> Unit,
     onDeleteBill: (String) -> Unit,
     onPayBill: (RecurringBill, FinanceAccount) -> Unit,
+    onImportStatement: () -> Unit,
     onExportCsv: () -> Unit,
     onExportJson: () -> Unit,
     onResetDemoData: () -> Unit,
@@ -158,21 +163,24 @@ fun MoreScreen(
             // User Profile Card
             item(key = "profile_card") {
                 Surface(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(20.dp),
                     color = Color.White,
+                    tonalElevation = 1.dp,
+                    shadowElevation = 2.dp,
+                    border = BorderStroke(0.5.dp, CardBorderSubtle),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, DividerHairline, RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(20.dp))
                         .clickable { showProfileDialog = true }
                         .testTag("profile_card")
                 ) {
                     Row(
-                        modifier = Modifier.padding(16.dp),
+                        modifier = Modifier.padding(18.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(48.dp)
+                                .size(50.dp)
                                 .clip(CircleShape)
                                 .background(MidnightSlate),
                             contentAlignment = Alignment.Center
@@ -217,11 +225,12 @@ fun MoreScreen(
             item(key = "mgmt_section") {
                 SectionLabel("CONFIGURATION")
                 Surface(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(20.dp),
                     color = Color.White,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, DividerHairline, RoundedCornerShape(16.dp))
+                    tonalElevation = 1.dp,
+                    shadowElevation = 2.dp,
+                    border = BorderStroke(0.5.dp, CardBorderSubtle),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Column {
                         SettingsRowItem(
@@ -233,7 +242,11 @@ fun MoreScreen(
                             onClick = { showCategoryManager = true },
                             testTag = "category_manager_row"
                         )
-                        HorizontalDivider(thickness = 1.dp, color = DividerHairline)
+                        HorizontalDivider(
+                            thickness = 0.75.dp,
+                            color = DividerHairline,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
                         SettingsRowItem(
                             icon = Icons.Outlined.EventRepeat,
                             iconTint = AmberWarning,
@@ -251,13 +264,28 @@ fun MoreScreen(
             item(key = "data_section") {
                 SectionLabel("DATA & BACKUP")
                 Surface(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(20.dp),
                     color = Color.White,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, DividerHairline, RoundedCornerShape(16.dp))
+                    tonalElevation = 1.dp,
+                    shadowElevation = 2.dp,
+                    border = BorderStroke(0.5.dp, CardBorderSubtle),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Column {
+                        SettingsRowItem(
+                            icon = Icons.Outlined.UploadFile,
+                            iconTint = BlueIncome,
+                            iconBg = BlueSoftBg,
+                            title = "Import Bank / Card Statement (PDF / CSV)",
+                            subtitle = "Parse PDF or CSV purely in memory — zero file retention",
+                            onClick = onImportStatement,
+                            testTag = "more_import_statement_row"
+                        )
+                        HorizontalDivider(
+                            thickness = 0.75.dp,
+                            color = DividerHairline,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
                         SettingsRowItem(
                             icon = Icons.Outlined.Description,
                             iconTint = EmeraldHealthy,
@@ -267,17 +295,25 @@ fun MoreScreen(
                             onClick = onExportCsv,
                             testTag = "export_csv_row"
                         )
-                        HorizontalDivider(thickness = 1.dp, color = DividerHairline)
+                        HorizontalDivider(
+                            thickness = 0.75.dp,
+                            color = DividerHairline,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
                         SettingsRowItem(
                             icon = Icons.Outlined.DataObject,
                             iconTint = BlueIncome,
-                            iconBg = Color(0xFFEFF6FF),
+                            iconBg = BlueSoftBg,
                             title = "Export Full Backup to JSON",
                             subtitle = "Includes accounts, bills, and ledger entries",
                             onClick = onExportJson,
                             testTag = "export_json_row"
                         )
-                        HorizontalDivider(thickness = 1.dp, color = DividerHairline)
+                        HorizontalDivider(
+                            thickness = 0.75.dp,
+                            color = DividerHairline,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
                         SettingsRowItem(
                             icon = Icons.Outlined.RestartAlt,
                             iconTint = CoralPrimary,
@@ -295,11 +331,12 @@ fun MoreScreen(
             item(key = "policies_section") {
                 SectionLabel("ABOUT & POLICIES")
                 Surface(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(20.dp),
                     color = Color.White,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, DividerHairline, RoundedCornerShape(16.dp))
+                    tonalElevation = 1.dp,
+                    shadowElevation = 2.dp,
+                    border = BorderStroke(0.5.dp, CardBorderSubtle),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Column {
                         SettingsRowItem(
@@ -311,7 +348,11 @@ fun MoreScreen(
                             onClick = { activeLegalModal = LegalModalType.PRIVACY },
                             testTag = "privacy_policy_row"
                         )
-                        HorizontalDivider(thickness = 1.dp, color = DividerHairline)
+                        HorizontalDivider(
+                            thickness = 0.75.dp,
+                            color = DividerHairline,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
                         SettingsRowItem(
                             icon = Icons.Outlined.Gavel,
                             iconTint = MidnightSlate,
@@ -321,7 +362,11 @@ fun MoreScreen(
                             onClick = { activeLegalModal = LegalModalType.TERMS },
                             testTag = "terms_row"
                         )
-                        HorizontalDivider(thickness = 1.dp, color = DividerHairline)
+                        HorizontalDivider(
+                            thickness = 0.75.dp,
+                            color = DividerHairline,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
                         SettingsRowItem(
                             icon = Icons.AutoMirrored.Outlined.HelpOutline,
                             iconTint = MidnightSlate,
@@ -339,20 +384,20 @@ fun MoreScreen(
             item(key = "sign_out") {
                 Button(
                     onClick = { signOutUser(credentialManager, scope) },
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.White,
+                        containerColor = CoralSoftBg,
                         contentColor = CoralPrimary
                     ),
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp)
-                        .border(1.dp, DividerHairline, RoundedCornerShape(14.dp))
+                        .height(52.dp)
                         .testTag("sign_out_button")
                 ) {
                     Icon(Icons.AutoMirrored.Outlined.Logout, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Sign Out", style = MaterialTheme.typography.labelLarge)
+                    Text("Sign Out", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -447,7 +492,7 @@ private fun SettingsRowItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
-            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
             .testTag(testTag),
         verticalAlignment = Alignment.CenterVertically
     ) {

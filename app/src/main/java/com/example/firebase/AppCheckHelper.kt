@@ -9,6 +9,10 @@ import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
 import com.google.firebase.appcheck.recaptcha.RecaptchaAppCheckProviderFactory
 
+import com.google.firebase.auth.auth
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.tasks.await
+
 private const val TAG = "AppCheckInit"
 
 private const val DEBUG_TOKEN_EXTRA = "FIREBASE_APPCHECK_DEBUG_TOKEN"
@@ -65,5 +69,59 @@ fun configureAppCheck(context: Context, intent: Intent?) {
         }
     } catch (e: Exception) {
         Log.e(TAG, "Failed to initialize Firebase App Check", e)
+    }
+}
+
+/**
+ * Ensures the signed-in Google session and App Check token are refreshed before Firebase AI calls.
+ * Never swallows CancellationException and logs diagnostic hints without leaking token values.
+ */
+suspend fun verifyAppCheckAndAuthState() {
+    try {
+        val currentUser = com.google.firebase.Firebase.auth.currentUser
+        if (currentUser != null) {
+            currentUser.getIdToken(false).await()
+        } else {
+            Log.w(TAG, "No authenticated Firebase user active prior to AI request.")
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "Could not refresh Firebase user ID token cleanly: ${e.message}")
+    }
+
+    try {
+        FirebaseAppCheck.getInstance().getAppCheckToken(false).await()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "App Check token pre-fetch warning: ${e.message}")
+    }
+}
+
+fun formatAiTokenError(error: Throwable): String {
+    val raw = generateSequence(error) { it.cause }
+        .mapNotNull { it.message ?: it.localizedMessage }
+        .joinToString(" | ")
+    val lower = raw.lowercase()
+    return when {
+        "app check" in lower ||
+            "attestation" in lower ||
+            "firebase" in lower && "token" in lower ||
+            "403" in lower ||
+            "permission_denied" in lower ||
+            "insufficient" in lower ||
+            "unauthenticated" in lower -> {
+            "Firebase App Check / token verification was rejected (${error.localizedMessage ?: "403"}). " +
+                "Verify you are signed in with Google and connected to the internet. " +
+                "If testing a local Android Studio debug build, ensure your debug keystore matches Firebase or register the DebugAppCheckProvider token from Logcat in Firebase Console → App Check."
+        }
+        "quota" in lower || "429" in lower || "resource_exhausted" in lower -> {
+            "AI request limit temporarily reached. Please wait a moment and try again."
+        }
+        "network" in lower || "unable to resolve host" in lower || "timeout" in lower -> {
+            "Network error while contacting Gemini AI. Please check your connection and try again."
+        }
+        else -> error.localizedMessage ?: "Could not process request with Gemini AI."
     }
 }

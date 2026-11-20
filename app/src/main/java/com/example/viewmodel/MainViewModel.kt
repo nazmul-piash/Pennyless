@@ -1,6 +1,8 @@
 package com.example.viewmodel
 
+import android.content.Context
 import android.graphics.Bitmap
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -11,14 +13,18 @@ import com.example.model.FinanceAccount
 import com.example.model.FinanceCategory
 import com.example.model.FinanceDashboardSnapshot
 import com.example.model.FinanceTransaction
+import com.example.model.ImportedStatementRow
 import com.example.model.RecurringBill
 import com.example.model.TxType
 import com.example.model.UiState
 import com.example.model.UserProfile
 import com.example.util.DateUtils
+import com.example.util.StatementParser
 import com.example.util.YearMonthKey
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -62,6 +68,20 @@ sealed interface ScannerUiState {
     ) : ScannerUiState
 }
 
+sealed interface StatementImportUiState {
+    data object Idle : StatementImportUiState
+    data class Parsing(val fileName: String, val isPdf: Boolean) : StatementImportUiState
+    data class Preview(
+        val fileName: String,
+        val isPdf: Boolean,
+        val rows: List<ImportedStatementRow>,
+        val selectedAccountId: String?,
+        val detectedAccountHint: String? = null
+    ) : StatementImportUiState
+    data class Saving(val totalCount: Int) : StatementImportUiState
+    data class Error(val message: String) : StatementImportUiState
+}
+
 class MainViewModel(
     private val repository: FinanceRepository,
     private val currentUserId: String,
@@ -92,6 +112,9 @@ class MainViewModel(
 
     private val _scannerState = MutableStateFlow<ScannerUiState>(ScannerUiState.Idle)
     val scannerState: StateFlow<ScannerUiState> = _scannerState.asStateFlow()
+
+    private val _statementImportState = MutableStateFlow<StatementImportUiState>(StatementImportUiState.Idle)
+    val statementImportState: StateFlow<StatementImportUiState> = _statementImportState.asStateFlow()
 
     private val _actionMessage = MutableStateFlow<String?>(null)
     val actionMessage: StateFlow<String?> = _actionMessage.asStateFlow()
@@ -514,6 +537,174 @@ class MainViewModel(
                 .onSuccess { _actionMessage.value = "Demo data restored" }
                 .onFailure { _actionMessage.value = it.localizedMessage ?: "Reset failed" }
         }
+    }
+
+    /**
+     * Reads the picked PDF/CSV statement purely in memory, extracts transactions,
+     * and zeros out transient byte buffers immediately afterwards (zero file retention).
+     */
+    fun importStatementFromUri(
+        context: Context,
+        uri: Uri,
+        accounts: List<FinanceAccount>,
+        defaultCurrency: String
+    ) {
+        val appContext = context.applicationContext
+        _statementImportState.value = StatementImportUiState.Parsing(
+            fileName = "Statement",
+            isPdf = false
+        )
+        viewModelScope.launch {
+            var docBytes: ByteArray? = null
+            try {
+                val doc = withContext(Dispatchers.IO) {
+                    StatementParser.readUriBytesInMemory(appContext, uri).getOrThrow()
+                }
+                docBytes = doc.bytes
+                _statementImportState.value = StatementImportUiState.Parsing(
+                    fileName = doc.displayName,
+                    isPdf = doc.isPdf
+                )
+
+                val todayIso = DateUtils.todayIso()
+                val parseResult: Pair<String?, List<ImportedStatementRow>> = if (doc.isPdf) {
+                    ReceiptAiService.analyzeStatementPdf(
+                        pdfBytes = doc.bytes,
+                        defaultCurrency = defaultCurrency,
+                        fallbackDateIso = todayIso
+                    ).getOrThrow()
+                } else {
+                    val rows = withContext(Dispatchers.IO) {
+                        StatementParser.parseCsvStatementInMemory(
+                            rawBytes = doc.bytes,
+                            defaultCurrency = defaultCurrency,
+                            fallbackDateIso = todayIso
+                        ).getOrThrow()
+                    }
+                    null to rows
+                }
+
+                val (hint, rows) = parseResult
+                val matchedAccount = matchBestAccount(accounts, hint ?: doc.displayName)
+                _statementImportState.value = StatementImportUiState.Preview(
+                    fileName = doc.displayName,
+                    isPdf = doc.isPdf,
+                    rows = rows,
+                    selectedAccountId = matchedAccount?.id ?: accounts.firstOrNull()?.id,
+                    detectedAccountHint = hint
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Statement import failed", e)
+                _statementImportState.value = StatementImportUiState.Error(
+                    e.localizedMessage ?: "Could not parse the selected statement."
+                )
+            } finally {
+                docBytes?.fill(0)
+            }
+        }
+    }
+
+    fun toggleStatementRow(rowId: String) {
+        val current = _statementImportState.value as? StatementImportUiState.Preview ?: return
+        _statementImportState.value = current.copy(
+            rows = current.rows.map { row ->
+                if (row.id == rowId) row.copy(selected = !row.selected) else row
+            }
+        )
+    }
+
+    fun toggleAllStatementRows(selectAll: Boolean) {
+        val current = _statementImportState.value as? StatementImportUiState.Preview ?: return
+        _statementImportState.value = current.copy(
+            rows = current.rows.map { it.copy(selected = selectAll) }
+        )
+    }
+
+    fun setStatementTargetAccount(accountId: String) {
+        val current = _statementImportState.value as? StatementImportUiState.Preview ?: return
+        _statementImportState.value = current.copy(selectedAccountId = accountId)
+    }
+
+    fun dismissStatementImport() {
+        _statementImportState.value = StatementImportUiState.Idle
+    }
+
+    fun commitStatementImport(accounts: List<FinanceAccount>) {
+        val preview = _statementImportState.value as? StatementImportUiState.Preview ?: return
+        val selectedRows = preview.rows.filter { it.selected }
+        if (selectedRows.isEmpty()) {
+            _actionMessage.value = "Select at least one transaction to import."
+            return
+        }
+        val targetAccount: FinanceAccount = accounts.firstOrNull { it.id == preview.selectedAccountId }
+            ?: accounts.firstOrNull()
+            ?: run {
+                _actionMessage.value = "Create an account first before importing transactions."
+                return
+            }
+
+        _statementImportState.value = StatementImportUiState.Saving(selectedRows.size)
+        viewModelScope.launch {
+            try {
+                val transactions = selectedRows.map { row ->
+                    FinanceTransaction(
+                        txType = row.txType,
+                        amount = row.amount,
+                        currency = row.currency,
+                        dateIso = row.dateIso,
+                        merchant = row.merchant,
+                        categoryName = row.categoryName,
+                        subcategory = row.subcategory,
+                        accountId = targetAccount.id,
+                        accountName = targetAccount.name,
+                        note = row.note.ifBlank { "Statement import" },
+                        needsReview = false
+                    )
+                }
+
+                // Batch writes into safe chunks under Firestore's 500-op transaction batch cap
+                var latestBalanceAccount: FinanceAccount = targetAccount
+                for (chunk in transactions.chunked(200)) {
+                    repository.saveTransactionsAndAdjustAccount(
+                        userId = currentUserId,
+                        transactions = chunk,
+                        account = latestBalanceAccount
+                    ).getOrThrow()
+                    val delta = chunk.sumOf { tx ->
+                        when (tx.resolvedTxType) {
+                            TxType.EXPENSE -> -tx.amount
+                            TxType.INCOME -> tx.amount
+                            TxType.TRANSFER -> 0.0
+                        }
+                    }
+                    latestBalanceAccount = latestBalanceAccount.copy(
+                        balance = latestBalanceAccount.balance + delta
+                    )
+                }
+
+                _statementImportState.value = StatementImportUiState.Idle
+                _actionMessage.value = "Imported ${selectedRows.size} transaction${if (selectedRows.size == 1) "" else "s"} to ${targetAccount.name}"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _statementImportState.value = preview
+                _actionMessage.value = e.localizedMessage ?: "Failed to save imported transactions."
+            }
+        }
+    }
+
+    private fun matchBestAccount(accounts: List<FinanceAccount>, hint: String?): FinanceAccount? {
+        if (accounts.isEmpty()) return null
+        val h = hint?.lowercase().orEmpty()
+        if (h.isBlank()) return accounts.firstOrNull()
+        return accounts.firstOrNull { acc ->
+            val nameLower = acc.name.lowercase()
+            h.contains(nameLower) ||
+                nameLower.split(" ").any { token -> token.length >= 3 && token in h } ||
+                (acc.lastFourDigits.isNotBlank() && acc.lastFourDigits in h)
+        } ?: accounts.firstOrNull()
     }
 
     private companion object {

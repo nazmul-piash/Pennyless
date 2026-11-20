@@ -1,5 +1,6 @@
 package com.example.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -56,6 +57,7 @@ import com.example.firebase.attemptAutoSignIn
 import com.example.firebase.onGoogleSignInClicked
 import com.example.ui.theme.BlueIncome
 import com.example.ui.theme.BlueSoftBg
+import com.example.ui.theme.CardBorderSubtle
 import com.example.ui.theme.CoralPrimary
 import com.example.ui.theme.CoralSoftBg
 import com.example.ui.theme.DividerHairline
@@ -139,9 +141,10 @@ fun AuthScreen(onAuthSuccess: () -> Unit) {
                 Surface(
                     shape = RoundedCornerShape(20.dp),
                     color = Color.White,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, DividerHairline, RoundedCornerShape(20.dp))
+                    tonalElevation = 1.dp,
+                    shadowElevation = 3.dp,
+                    border = BorderStroke(0.5.dp, CardBorderSubtle),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         FeatureHighlightRow(

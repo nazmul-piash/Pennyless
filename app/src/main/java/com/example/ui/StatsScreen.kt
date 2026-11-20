@@ -1,10 +1,12 @@
 package com.example.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -54,6 +56,7 @@ import com.example.model.formatMoney
 import com.example.ui.components.categoryColorForName
 import com.example.ui.components.categoryIconForName
 import com.example.ui.theme.BlueIncome
+import com.example.ui.theme.CardBorderSubtle
 import com.example.ui.theme.CoralPrimary
 import com.example.ui.theme.DividerHairline
 import com.example.ui.theme.MidnightInk
@@ -144,17 +147,22 @@ fun StatsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(14.dp))
                     .background(SurfaceSubtle)
                     .padding(4.dp)
             ) {
                 listOf(TxType.EXPENSE, TxType.INCOME).forEach { type ->
                     val selected = statsTxType == type
+                    val tabBg by animateColorAsState(
+                        targetValue = if (selected) Color.White else Color.Transparent,
+                        animationSpec = tween(180),
+                        label = "stats_tab_bg"
+                    )
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(RoundedCornerShape(9.dp))
-                            .background(if (selected) Color.White else Color.Transparent)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(tabBg)
                             .clickable {
                                 highlightedCategory = null
                                 onSelectStatsType(type)
@@ -188,15 +196,24 @@ fun StatsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .widthIn(max = 720.dp),
-            contentPadding = PaddingValues(bottom = 100.dp)
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp).let {
+                PaddingValues(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 100.dp)
+            },
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item(key = "donut_chart") {
                 Surface(
+                    shape = RoundedCornerShape(20.dp),
                     color = Color.White,
-                    modifier = Modifier.fillMaxWidth()
+                    tonalElevation = 1.dp,
+                    shadowElevation = 2.dp,
+                    border = BorderStroke(0.5.dp, CardBorderSubtle),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .animateContentSize()
                 ) {
                     Column(
-                        modifier = Modifier.padding(vertical = 22.dp, horizontal = 16.dp),
+                        modifier = Modifier.padding(vertical = 22.dp, horizontal = 18.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         val animProgress by animateFloatAsState(
@@ -257,72 +274,93 @@ fun StatsScreen(
                         }
                     }
                 }
-                HorizontalDivider(thickness = 1.dp, color = DividerHairline)
-                Spacer(modifier = Modifier.height(10.dp))
-                HorizontalDivider(thickness = 1.dp, color = DividerHairline)
             }
 
-            itemsIndexed(breakdown, key = { _, item -> item.categoryName }) { _, item ->
-                val isSelected = highlightedCategory == item.categoryName
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(if (isSelected) item.color.copy(alpha = 0.08f) else Color.White)
-                        .clickable {
-                            highlightedCategory = if (isSelected) null else item.categoryName
-                        }
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
+            item(key = "breakdown_card") {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color.White,
+                    tonalElevation = 1.dp,
+                    shadowElevation = 2.dp,
+                    border = BorderStroke(0.5.dp, CardBorderSubtle),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = item.color,
-                        modifier = Modifier.width(50.dp)
-                    ) {
-                        Text(
-                            text = "${item.percentage.roundToInt()}%",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
+                    Column {
+                        breakdown.forEachIndexed { idx, item ->
+                            val isSelected = highlightedCategory == item.categoryName
+                            val rowBg by animateColorAsState(
+                                targetValue = if (isSelected) item.color.copy(alpha = 0.08f) else Color.White,
+                                animationSpec = tween(180),
+                                label = "stat_row_bg"
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(rowBg)
+                                    .clickable {
+                                        highlightedCategory = if (isSelected) null else item.categoryName
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = item.color,
+                                    modifier = Modifier.width(50.dp)
+                                ) {
+                                    Text(
+                                        text = "${item.percentage.roundToInt()}%",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(CircleShape)
+                                        .background(item.color.copy(alpha = 0.14f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = categoryIconForName(item.categoryName, snapshot.categories),
+                                        contentDescription = null,
+                                        tint = item.color,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = item.categoryName,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MidnightInk
+                                    )
+                                    Text(
+                                        text = "${item.count} transaction${if (item.count == 1) "" else "s"}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = SlateSecondary
+                                    )
+                                }
+                                Text(
+                                    text = formatMoney(item.total, currency),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MidnightInk
+                                )
+                            }
+                            if (idx < breakdown.lastIndex) {
+                                HorizontalDivider(
+                                    thickness = 0.75.dp,
+                                    color = DividerHairline,
+                                    modifier = Modifier.padding(horizontal = 16.dp)
+                                )
+                            }
+                        }
                     }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(CircleShape)
-                            .background(item.color.copy(alpha = 0.14f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = categoryIconForName(item.categoryName, snapshot.categories),
-                            contentDescription = null,
-                            tint = item.color,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = item.categoryName,
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MidnightInk
-                        )
-                        Text(
-                            text = "${item.count} transaction${if (item.count == 1) "" else "s"}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = SlateSecondary
-                        )
-                    }
-                    Text(
-                        text = formatMoney(item.total, currency),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MidnightInk
-                    )
                 }
-                HorizontalDivider(thickness = 1.dp, color = DividerHairline)
             }
         }
     }

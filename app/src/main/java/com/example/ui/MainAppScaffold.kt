@@ -2,6 +2,17 @@ package com.example.ui
 
 import android.content.Context
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +29,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.AccountBalanceWallet
@@ -46,6 +58,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -59,6 +72,7 @@ import com.example.model.FinanceTransaction
 import com.example.model.UiState
 import com.example.ui.theme.BlueIncome
 import com.example.ui.theme.CoralPrimary
+import com.example.ui.theme.CoralSoftBg
 import com.example.ui.theme.DividerHairline
 import com.example.ui.theme.MidnightSlate
 import com.example.ui.theme.SlateSecondary
@@ -82,6 +96,7 @@ fun MainAppScaffold(viewModel: MainViewModel) {
     val filterTxType by viewModel.filterTxType.collectAsStateWithLifecycle()
     val statsTxType by viewModel.statsTxType.collectAsStateWithLifecycle()
     val scannerState by viewModel.scannerState.collectAsStateWithLifecycle()
+    val statementImportState by viewModel.statementImportState.collectAsStateWithLifecycle()
     val actionMessage by viewModel.actionMessage.collectAsStateWithLifecycle()
 
     var showScannerModal by remember { mutableStateOf(false) }
@@ -89,6 +104,23 @@ fun MainAppScaffold(viewModel: MainViewModel) {
     var editingTx by remember { mutableStateOf<FinanceTransaction?>(null) }
     var manualInitialDate by remember { mutableStateOf(DateUtils.todayIso()) }
     var openBillsFromShortcut by remember { mutableStateOf(false) }
+
+    val statementMimeTypes = remember {
+        arrayOf("application/pdf", "text/csv", "text/comma-separated-values")
+    }
+    val statementPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        val snap = (dashboardState as? UiState.Success)?.data
+        if (uri != null && snap != null) {
+            viewModel.importStatementFromUri(
+                context = context,
+                uri = uri,
+                accounts = snap.accounts,
+                defaultCurrency = snap.profile.currency
+            )
+        }
+    }
 
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(actionMessage) {
@@ -109,7 +141,11 @@ fun MainAppScaffold(viewModel: MainViewModel) {
             )
         },
         floatingActionButton = {
-            if (selectedTab == MainNavTab.TRANSACTIONS && dashboardState is UiState.Success) {
+            AnimatedVisibility(
+                visible = selectedTab == MainNavTab.TRANSACTIONS && dashboardState is UiState.Success,
+                enter = fadeIn(tween(200)) + scaleIn(tween(200), initialScale = 0.85f),
+                exit = fadeOut(tween(150)) + scaleOut(tween(150), targetScale = 0.85f)
+            ) {
                 // Unified Quick-Add Cluster: Secondary (+) above side-by-side Mic (Voice) + Camera (Receipt Scan)
                 Column(
                     horizontalAlignment = Alignment.End,
@@ -211,75 +247,85 @@ fun MainAppScaffold(viewModel: MainViewModel) {
 
                 is UiState.Success -> {
                     val snapshot = state.data
-                    when (selectedTab) {
-                        MainNavTab.TRANSACTIONS -> TransactionsScreen(
-                            snapshot = snapshot,
-                            selectedSubTab = selectedSubTab,
-                            selectedMonth = selectedMonth,
-                            searchQuery = searchQuery,
-                            filterAccountId = filterAccountId,
-                            filterTxType = filterTxType,
-                            onSelectSubTab = { viewModel.selectSubTab(it) },
-                            onShiftMonth = { viewModel.shiftMonth(it) },
-                            onShiftYear = { viewModel.shiftYear(it) },
-                            onSearchQueryChange = { viewModel.setSearchQuery(it) },
-                            onApplyFilters = { accId, t -> viewModel.setFilters(accId, t) },
-                            onOpenRecurringBills = {
-                                openBillsFromShortcut = true
-                                viewModel.selectTab(MainNavTab.MORE)
-                            },
-                            onOpenAddManualForDate = { date ->
-                                editingTx = null
-                                manualInitialDate = date
-                                showManualSheet = true
-                            },
-                            onEditTransaction = { tx ->
-                                editingTx = tx
-                                manualInitialDate = tx.dateIso
-                                showManualSheet = true
-                            },
-                            onDeleteTransaction = { tx ->
-                                val acc = snapshot.accounts.firstOrNull { it.id == tx.accountId }
-                                viewModel.deleteTransaction(tx, acc)
-                            },
-                            onExportCsv = { shareExportFile(context, snapshot, asJson = false) }
-                        )
+                    AnimatedContent(
+                        targetState = selectedTab,
+                        transitionSpec = {
+                            fadeIn(tween(200)) togetherWith fadeOut(tween(150))
+                        },
+                        label = "main_tab_transition"
+                    ) { tab ->
+                        when (tab) {
+                            MainNavTab.TRANSACTIONS -> TransactionsScreen(
+                                snapshot = snapshot,
+                                selectedSubTab = selectedSubTab,
+                                selectedMonth = selectedMonth,
+                                searchQuery = searchQuery,
+                                filterAccountId = filterAccountId,
+                                filterTxType = filterTxType,
+                                onSelectSubTab = { viewModel.selectSubTab(it) },
+                                onShiftMonth = { viewModel.shiftMonth(it) },
+                                onShiftYear = { viewModel.shiftYear(it) },
+                                onSearchQueryChange = { viewModel.setSearchQuery(it) },
+                                onApplyFilters = { accId, t -> viewModel.setFilters(accId, t) },
+                                onOpenRecurringBills = {
+                                    openBillsFromShortcut = true
+                                    viewModel.selectTab(MainNavTab.MORE)
+                                },
+                                onOpenAddManualForDate = { date ->
+                                    editingTx = null
+                                    manualInitialDate = date
+                                    showManualSheet = true
+                                },
+                                onEditTransaction = { tx ->
+                                    editingTx = tx
+                                    manualInitialDate = tx.dateIso
+                                    showManualSheet = true
+                                },
+                                onDeleteTransaction = { tx ->
+                                    val acc = snapshot.accounts.firstOrNull { it.id == tx.accountId }
+                                    viewModel.deleteTransaction(tx, acc)
+                                },
+                                onExportCsv = { shareExportFile(context, snapshot, asJson = false) }
+                            )
 
-                        MainNavTab.STATS -> StatsScreen(
-                            snapshot = snapshot,
-                            selectedMonth = selectedMonth,
-                            statsTxType = statsTxType,
-                            onSelectStatsType = { viewModel.setStatsType(it) },
-                            onShiftMonth = { viewModel.shiftMonth(it) }
-                        )
+                            MainNavTab.STATS -> StatsScreen(
+                                snapshot = snapshot,
+                                selectedMonth = selectedMonth,
+                                statsTxType = statsTxType,
+                                onSelectStatsType = { viewModel.setStatsType(it) },
+                                onShiftMonth = { viewModel.shiftMonth(it) }
+                            )
 
-                        MainNavTab.ACCOUNTS -> AccountsScreen(
-                            snapshot = snapshot,
-                            onSaveAccount = { acc, done -> viewModel.saveAccount(acc, done) },
-                            onDeleteAccount = { viewModel.deleteAccount(it) },
-                            onTransfer = { from, to, amt, note, done ->
-                                viewModel.transferBetweenAccounts(from, to, amt, snapshot.profile.currency, note, done)
-                            }
-                        )
+                            MainNavTab.ACCOUNTS -> AccountsScreen(
+                                snapshot = snapshot,
+                                onSaveAccount = { acc, done -> viewModel.saveAccount(acc, done) },
+                                onDeleteAccount = { viewModel.deleteAccount(it) },
+                                onTransfer = { from, to, amt, note, done ->
+                                    viewModel.transferBetweenAccounts(from, to, amt, snapshot.profile.currency, note, done)
+                                },
+                                onImportStatement = { statementPickerLauncher.launch(statementMimeTypes) }
+                            )
 
-                        MainNavTab.MORE -> MoreScreen(
-                            snapshot = snapshot,
-                            openBillsInitially = openBillsFromShortcut,
-                            onClearOpenBillsFlag = { openBillsFromShortcut = false },
-                            onUpdateProfile = { name, cur, budget, done ->
-                                viewModel.updateProfile(name, cur, budget, done)
-                            },
-                            onSaveCategory = { cat, done -> viewModel.saveCategory(cat, done) },
-                            onDeleteCategory = { viewModel.deleteCategory(it) },
-                            onSaveBill = { bill, done -> viewModel.saveRecurringBill(bill, done) },
-                            onDeleteBill = { viewModel.deleteRecurringBill(it) },
-                            onPayBill = { bill, acc ->
-                                viewModel.payRecurringBill(bill, acc, snapshot.profile.currency)
-                            },
-                            onExportCsv = { shareExportFile(context, snapshot, asJson = false) },
-                            onExportJson = { shareExportFile(context, snapshot, asJson = true) },
-                            onResetDemoData = { viewModel.resetDemoData() }
-                        )
+                            MainNavTab.MORE -> MoreScreen(
+                                snapshot = snapshot,
+                                openBillsInitially = openBillsFromShortcut,
+                                onClearOpenBillsFlag = { openBillsFromShortcut = false },
+                                onUpdateProfile = { name, cur, budget, done ->
+                                    viewModel.updateProfile(name, cur, budget, done)
+                                },
+                                onSaveCategory = { cat, done -> viewModel.saveCategory(cat, done) },
+                                onDeleteCategory = { viewModel.deleteCategory(it) },
+                                onSaveBill = { bill, done -> viewModel.saveRecurringBill(bill, done) },
+                                onDeleteBill = { viewModel.deleteRecurringBill(it) },
+                                onPayBill = { bill, acc ->
+                                    viewModel.payRecurringBill(bill, acc, snapshot.profile.currency)
+                                },
+                                onImportStatement = { statementPickerLauncher.launch(statementMimeTypes) },
+                                onExportCsv = { shareExportFile(context, snapshot, asJson = false) },
+                                onExportJson = { shareExportFile(context, snapshot, asJson = true) },
+                                onResetDemoData = { viewModel.resetDemoData() }
+                            )
+                        }
                     }
                 }
             }
@@ -368,6 +414,19 @@ fun MainAppScaffold(viewModel: MainViewModel) {
             }
         )
     }
+    if (currentSnapshot != null) {
+        StatementImportModalSheet(
+            state = statementImportState,
+            accounts = currentSnapshot.accounts,
+            categories = currentSnapshot.categories,
+            defaultCurrency = currentSnapshot.profile.currency,
+            onToggleRow = { viewModel.toggleStatementRow(it) },
+            onToggleAll = { viewModel.toggleAllStatementRows(it) },
+            onSelectAccount = { viewModel.setStatementTargetAccount(it) },
+            onConfirmSave = { viewModel.commitStatementImport(currentSnapshot.accounts) },
+            onDismiss = { viewModel.dismissStatementImport() }
+        )
+    }
 }
 
 @Composable
@@ -376,13 +435,17 @@ private fun MoneyManagerBottomBar(
     onSelectTab: (MainNavTab) -> Unit
 ) {
     val todayLabel = remember { DateUtils.todayTabLabel() }
-    Surface(color = Color.White) {
+    Surface(
+        color = Color.White,
+        tonalElevation = 2.dp,
+        shadowElevation = 8.dp
+    ) {
         Column(modifier = Modifier.navigationBarsPadding()) {
-            HorizontalDivider(thickness = 1.dp, color = DividerHairline)
+            HorizontalDivider(thickness = 0.5.dp, color = DividerHairline.copy(alpha = 0.6f))
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(60.dp),
+                    .height(64.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 BottomNavItem(
@@ -431,7 +494,16 @@ private fun BottomNavItem(
     testTag: String,
     modifier: Modifier = Modifier
 ) {
-    val tint = if (selected) CoralPrimary else SlateSecondary
+    val tint by animateColorAsState(
+        targetValue = if (selected) CoralPrimary else SlateSecondary,
+        animationSpec = tween(200),
+        label = "nav_tint"
+    )
+    val pillBg by animateColorAsState(
+        targetValue = if (selected) CoralSoftBg else Color.Transparent,
+        animationSpec = tween(200),
+        label = "nav_pill"
+    )
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -440,7 +512,15 @@ private fun BottomNavItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Icon(imageVector = icon, contentDescription = label, tint = tint, modifier = Modifier.size(22.dp))
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(14.dp))
+                .background(pillBg)
+                .padding(horizontal = 14.dp, vertical = 4.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(imageVector = icon, contentDescription = label, tint = tint, modifier = Modifier.size(22.dp))
+        }
         Spacer(modifier = Modifier.height(2.dp))
         Text(
             text = label,

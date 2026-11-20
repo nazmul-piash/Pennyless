@@ -1,6 +1,13 @@
 package com.example.ui
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -75,6 +82,7 @@ import com.example.ui.components.rememberBase64ImageBitmap
 import com.example.ui.theme.AmberSoftBg
 import com.example.ui.theme.AmberWarning
 import com.example.ui.theme.BlueIncome
+import com.example.ui.theme.CardBorderSubtle
 import com.example.ui.theme.CoralPrimary
 import com.example.ui.theme.CoralSoftBg
 import com.example.ui.theme.DividerHairline
@@ -332,12 +340,17 @@ fun TransactionsScreen(
         }
 
         // Sub-Tab Content
-        Box(
+        AnimatedContent(
+            targetState = selectedSubTab,
+            transitionSpec = {
+                fadeIn(animationSpec = tween(180)) togetherWith fadeOut(animationSpec = tween(140))
+            },
+            label = "trans_subtab_transition",
             modifier = Modifier
                 .fillMaxSize()
                 .widthIn(max = 720.dp)
-        ) {
-            when (selectedSubTab) {
+        ) { subTab ->
+            when (subTab) {
                 TransSubTab.DAILY -> DailyTransactionsContent(
                     transactions = filteredMonthTxs,
                     categories = snapshot.categories,
@@ -469,24 +482,27 @@ private fun DailyTransactionsContent(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 110.dp)
+        contentPadding = PaddingValues(start = 14.dp, top = 10.dp, end = 14.dp, bottom = 110.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         if (upcomingBills.isNotEmpty()) {
             item(key = "upcoming_bill_alert") {
                 val totalDue = upcomingBills.sumOf { it.amount }
                 Surface(
                     color = AmberSoftBg,
+                    tonalElevation = 1.dp,
+                    shadowElevation = 1.5.dp,
+                    border = BorderStroke(0.5.dp, AmberWarning.copy(alpha = 0.28f)),
+                    shape = RoundedCornerShape(18.dp),
                     modifier = Modifier
                         .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
                         .clickable { onOpenRecurringBills() }
-                        .padding(horizontal = 16.dp, vertical = 10.dp)
-                        .testTag("upcoming_bills_banner"),
-                    shape = RoundedCornerShape(12.dp)
+                        .animateContentSize()
+                        .testTag("upcoming_bills_banner")
                 ) {
                     Column(
-                        modifier = Modifier
-                            .border(1.dp, AmberWarning.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Row(
@@ -543,20 +559,37 @@ private fun DailyTransactionsContent(
             }
         }
 
-        groupedByDate.forEach { (dateIso, dayTxs) ->
-            item(key = "header_$dateIso") {
-                DaySectionHeader(dateIso = dateIso, dayTxs = dayTxs, currency = currency)
-            }
-            items(items = dayTxs, key = { it.id.ifBlank { "${it.dateIso}_${it.merchant}_${it.amount}" } }) { tx ->
-                TransactionRowItem(
-                    tx = tx,
-                    categories = categories,
-                    onClick = { onClickTransaction(tx) }
-                )
-                HorizontalDivider(thickness = 1.dp, color = DividerHairline)
-            }
-            item(key = "spacer_$dateIso") {
-                Spacer(modifier = Modifier.height(8.dp))
+        items(items = groupedByDate, key = { it.key }) { (dateIso, dayTxs) ->
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = Color.White,
+                tonalElevation = 0.5.dp,
+                shadowElevation = 1.5.dp,
+                border = BorderStroke(0.5.dp, CardBorderSubtle),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column {
+                    DaySectionHeader(dateIso = dateIso, dayTxs = dayTxs, currency = currency)
+                    HorizontalDivider(
+                        thickness = 0.75.dp,
+                        color = DividerHairline,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                    dayTxs.forEachIndexed { idx, tx ->
+                        TransactionRowItem(
+                            tx = tx,
+                            categories = categories,
+                            onClick = { onClickTransaction(tx) }
+                        )
+                        if (idx < dayTxs.lastIndex) {
+                            HorizontalDivider(
+                                thickness = 0.75.dp,
+                                color = DividerHairline,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -575,63 +608,59 @@ fun DaySectionHeader(
     val dayExpense = dayTxs.filter { it.resolvedTxType == TxType.EXPENSE }.sumOf { it.amount }
     val isToday = dateIso == DateUtils.todayIso()
 
-    Column(modifier = Modifier.background(Color.White)) {
-        HorizontalDivider(thickness = 1.dp, color = DividerHairline)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = String.format("%02d", dayNum),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MidnightInk
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (isToday) MidnightSlate else Color(0xFFF3F4F6))
+                    .padding(horizontal = 7.dp, vertical = 2.dp)
+            ) {
                 Text(
-                    text = String.format("%02d", dayNum),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MidnightInk
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (isToday) MidnightSlate else Color(0xFFF3F4F6))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        text = dayOfWeek,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (isToday) Color.White else SlateSecondary
-                    )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = monthYear,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = SlateSecondary
+                    text = dayOfWeek,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isToday) Color.White else SlateSecondary
                 )
             }
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = monthYear,
+                style = MaterialTheme.typography.bodySmall,
+                color = SlateSecondary
+            )
+        }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                if (dayIncome > 0.0) {
-                    Text(
-                        text = formatMoney(dayIncome, currency),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = BlueIncome
-                    )
-                }
-                if (dayExpense > 0.0) {
-                    Text(
-                        text = formatMoney(dayExpense, currency),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = CoralPrimary
-                    )
-                }
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            if (dayIncome > 0.0) {
+                Text(
+                    text = formatMoney(dayIncome, currency),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = BlueIncome
+                )
+            }
+            if (dayExpense > 0.0) {
+                Text(
+                    text = formatMoney(dayExpense, currency),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = CoralPrimary
+                )
             }
         }
-        HorizontalDivider(thickness = 1.dp, color = DividerHairline)
     }
 }
 
@@ -777,72 +806,79 @@ private fun DescriptionTransactionsView(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 110.dp)
+        contentPadding = PaddingValues(start = 14.dp, top = 10.dp, end = 14.dp, bottom = 110.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         items(grouped, key = { it.key }) { (label, txs) ->
             val sumExpense = txs.filter { it.resolvedTxType == TxType.EXPENSE }.sumOf { it.amount }
             val sumIncome = txs.filter { it.resolvedTxType == TxType.INCOME }.sumOf { it.amount }
-            Surface(color = Color.White, modifier = Modifier.fillMaxWidth()) {
-                Column {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onClickTransaction(txs.first()) }
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            val firstCat = txs.first().categoryName
-                            val color = categoryColorForName(firstCat, categories)
-                            Box(
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(CircleShape)
-                                    .background(color.copy(alpha = 0.14f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = categoryIconForName(firstCat, categories),
-                                    contentDescription = null,
-                                    tint = color,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Text(
-                                    text = label,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = MidnightInk,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = "${txs.size} entr${if (txs.size == 1) "y" else "ies"} · ${txs.first().categoryName}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = SlateSecondary
-                                )
-                            }
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = Color.White,
+                tonalElevation = 0.5.dp,
+                shadowElevation = 1.5.dp,
+                border = BorderStroke(0.5.dp, CardBorderSubtle),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .clickable { onClickTransaction(txs.first()) }
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        val firstCat = txs.first().categoryName
+                        val color = categoryColorForName(firstCat, categories)
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(color.copy(alpha = 0.14f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = categoryIconForName(firstCat, categories),
+                                contentDescription = null,
+                                tint = color,
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
-                        Column(horizontalAlignment = Alignment.End) {
-                            if (sumIncome > 0) {
-                                Text(
-                                    text = formatMoney(sumIncome, currency),
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = BlueIncome
-                                )
-                            }
-                            if (sumExpense > 0) {
-                                Text(
-                                    text = formatMoney(sumExpense, currency),
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = CoralPrimary
-                                )
-                            }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MidnightInk,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "${txs.size} entr${if (txs.size == 1) "y" else "ies"} · ${txs.first().categoryName}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = SlateSecondary
+                            )
                         }
                     }
-                    HorizontalDivider(thickness = 1.dp, color = DividerHairline)
+                    Column(horizontalAlignment = Alignment.End) {
+                        if (sumIncome > 0) {
+                            Text(
+                                text = formatMoney(sumIncome, currency),
+                                style = MaterialTheme.typography.titleSmall,
+                                color = BlueIncome
+                            )
+                        }
+                        if (sumExpense > 0) {
+                            Text(
+                                text = formatMoney(sumExpense, currency),
+                                style = MaterialTheme.typography.titleSmall,
+                                color = CoralPrimary
+                            )
+                        }
+                    }
                 }
             }
         }

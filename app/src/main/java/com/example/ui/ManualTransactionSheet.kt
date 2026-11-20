@@ -1,6 +1,9 @@
 package com.example.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -12,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -51,6 +55,7 @@ import com.example.model.FinanceCategory
 import com.example.model.FinanceTransaction
 import com.example.model.TxType
 import com.example.ui.theme.BlueIncome
+import com.example.ui.theme.CardBorderSubtle
 import com.example.ui.theme.CoralPrimary
 import com.example.ui.theme.DividerHairline
 import com.example.ui.theme.MidnightInk
@@ -128,6 +133,7 @@ fun ManualTransactionSheet(
                 modifier = Modifier
                     .fillMaxSize()
                     .widthIn(max = 680.dp)
+                    .imePadding()
                     .verticalScroll(rememberScrollState())
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -136,7 +142,7 @@ fun ManualTransactionSheet(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(14.dp))
                         .background(SurfaceSubtle)
                         .padding(4.dp)
                 ) {
@@ -147,11 +153,16 @@ fun ManualTransactionSheet(
                             TxType.INCOME -> BlueIncome
                             TxType.TRANSFER -> MidnightInk
                         }
+                        val tabBg by animateColorAsState(
+                            targetValue = if (selected) Color.White else Color.Transparent,
+                            animationSpec = tween(180),
+                            label = "manual_type_bg"
+                        )
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(9.dp))
-                                .background(if (selected) Color.White else Color.Transparent)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(tabBg)
                                 .clickable { txType = type }
                                 .padding(vertical = 10.dp),
                             contentAlignment = Alignment.Center
@@ -167,11 +178,14 @@ fun ManualTransactionSheet(
                 }
 
                 Surface(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(20.dp),
                     color = Color.White,
+                    tonalElevation = 1.dp,
+                    shadowElevation = 2.dp,
+                    border = BorderStroke(0.5.dp, CardBorderSubtle),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         OutlinedTextField(
                             value = amountStr,
                             onValueChange = { amountStr = it },

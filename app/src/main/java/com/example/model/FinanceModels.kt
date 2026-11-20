@@ -162,6 +162,19 @@ data class ExtractedReceiptResult(
     val clarificationQuestions: List<ClarificationQuestion> = emptyList()
 )
 
+data class ImportedStatementRow(
+    val id: String,
+    val dateIso: String,
+    val merchant: String,
+    val amount: Double,
+    val currency: String,
+    val txType: String = TxType.EXPENSE.name,
+    val categoryName: String = "Other",
+    val subcategory: String = "Statement Import",
+    val note: String = "",
+    val selected: Boolean = true
+)
+
 data class FinanceDashboardSnapshot(
     val profile: UserProfile = UserProfile(),
     val accounts: List<FinanceAccount> = emptyList(),

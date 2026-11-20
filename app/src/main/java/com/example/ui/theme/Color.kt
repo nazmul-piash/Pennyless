@@ -21,7 +21,9 @@ val MidnightSlate = Color(0xFF1D2538)      // Today calendar badge & premium dar
 val SlateSecondary = Color(0xFF6B7280)     // Secondary labels
 val SlateTertiary = Color(0xFF9CA3AF)      // Subtle hints
 
-val SurfaceGroupedBg = Color(0xFFF6F7F9)   // iOS grouped background
-val SurfaceCard = Color(0xFFFFFFFF)        // Pure crisp card surface
+val SurfaceGroupedBg = Color(0xFFF6F7F9)   // Soft grouped background
+val SurfaceSoftTinted = Color(0xFFF9FAFC)  // Subtle tonal card tint
+val SurfaceCard = Color(0xFFFFFFFF)        // Clean elevated card surface
 val SurfaceSubtle = Color(0xFFF1F3F5)      // Segmented control / input surface
-val DividerHairline = Color(0xFFE5E7EB)    // Clean 1px Money Manager divider
+val CardBorderSubtle = Color(0xFFECEEF2)   // Ultra-soft card edge
+val DividerHairline = Color(0xFFE5E7EB)    // Subtle divider

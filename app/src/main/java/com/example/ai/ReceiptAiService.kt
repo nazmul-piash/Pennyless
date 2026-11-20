@@ -3,9 +3,14 @@ package com.example.ai
 import android.graphics.Bitmap
 import android.util.Base64
 import android.util.Log
+import com.example.firebase.formatAiTokenError
+import com.example.firebase.verifyAppCheckAndAuthState
 import com.example.model.ClarificationQuestion
 import com.example.model.ExtractedReceiptResult
+import com.example.model.ImportedStatementRow
 import com.example.model.ReceiptLineItem
+import com.example.model.TxType
+import com.example.util.StatementParser
 import com.google.firebase.Firebase
 import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.Schema
@@ -19,6 +24,7 @@ import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -153,6 +159,37 @@ object ReceiptAiService {
         optionalProperties = listOf("review_reason")
     )
 
+    private val statementSchema = Schema.obj(
+        properties = mapOf(
+            "detected_account_hint" to Schema.string(
+                description = "Bank or card name printed on the statement (e.g. TF Bank Mastercard Gold, Extrakarte)",
+                nullable = true
+            ),
+            "transactions" to Schema.array(
+                items = Schema.obj(
+                    properties = mapOf(
+                        "date" to Schema.string("Transaction date in YYYY-MM-DD format"),
+                        "merchant" to Schema.string("Clean merchant, vendor, or transaction description"),
+                        "amount" to Schema.double("Positive transaction amount magnitude"),
+                        "currency" to Schema.string("3-letter ISO currency code such as EUR or USD"),
+                        "type" to Schema.enumeration(
+                            values = transactionTypes,
+                            description = "Expense for charges/purchases/fees or Income for payments/refunds/deposits"
+                        ),
+                        "category" to Schema.enumeration(
+                            values = primaryCategories,
+                            description = "Best matching primary category"
+                        ),
+                        "note" to Schema.string("Optional concise 3-6 word ledger note", nullable = true)
+                    ),
+                    optionalProperties = listOf("note")
+                ),
+                description = "All line-item financial transactions extracted from the PDF statement"
+            )
+        ),
+        optionalProperties = listOf("detected_account_hint")
+    )
+
     private val model by lazy {
         Firebase.ai.generativeModel(
             modelName = "gemini-3.8-flash",
@@ -173,14 +210,32 @@ object ReceiptAiService {
         )
     }
 
+    private val statementModel by lazy {
+        Firebase.ai.generativeModel(
+            modelName = "gemini-3.8-flash",
+            generationConfig = generationConfig {
+                responseMimeType = "application/json"
+                responseSchema = statementSchema
+            }
+        )
+    }
+
     suspend fun analyzeReceipt(
         bitmap: Bitmap,
         defaultCurrency: String,
         fallbackDateIso: String
     ): Result<Pair<ExtractedReceiptResult, String>> = withContext(Dispatchers.IO) {
+        var jpegBytes: ByteArray? = null
         try {
-            val scaledForAi = scaleBitmap(bitmap, maxDimension = 1280)
-            val thumbnailBase64 = createThumbnailBase64(bitmap)
+            verifyAppCheckAndAuthState()
+            val softwareBitmap = if (bitmap.config == Bitmap.Config.HARDWARE) {
+                bitmap.copy(Bitmap.Config.ARGB_8888, false)
+            } else {
+                bitmap
+            }
+            val scaledForAi = scaleBitmap(softwareBitmap, maxDimension = 1280)
+            jpegBytes = compressBitmapToJpegBytes(scaledForAi)
+            val thumbnailBase64 = createThumbnailBase64(softwareBitmap)
 
             val prompt = """
                 You are the financial vision and data-extraction engine for a personal finance app.
@@ -196,7 +251,7 @@ object ReceiptAiService {
             val response = withTimeout(60_000L) {
                 model.generateContent(
                     content {
-                        image(scaledForAi)
+                        inlineData(jpegBytes!!, "image/jpeg")
                         text(prompt)
                     }
                 )
@@ -235,7 +290,100 @@ object ReceiptAiService {
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Receipt scan failed", e)
-            Result.failure(e)
+            Result.failure(IllegalStateException(formatAiTokenError(e), e))
+        } finally {
+            jpegBytes?.fill(0)
+        }
+    }
+
+    suspend fun analyzeStatementPdf(
+        pdfBytes: ByteArray,
+        defaultCurrency: String,
+        fallbackDateIso: String
+    ): Result<Pair<String?, List<ImportedStatementRow>>> = withContext(Dispatchers.IO) {
+        try {
+            require(pdfBytes.isNotEmpty()) { "PDF statement is empty." }
+            require(pdfBytes.size <= StatementParser.MAX_STATEMENT_BYTES) {
+                "PDF exceeds 18 MB limit for inline statement parsing."
+            }
+            verifyAppCheckAndAuthState()
+
+            val prompt = """
+                You are a financial statement extraction engine for a personal finance app.
+                Extract every financial transaction row from this bank or credit card PDF statement.
+                Rules:
+                1. Ignore opening/closing balance summary lines, headers, and legal footers; extract actual transactions only.
+                2. Format every transaction date strictly as YYYY-MM-DD (convert European DD.MM.YYYY accurately; fallback to $fallbackDateIso only if year/month missing).
+                3. Output amount as a positive decimal number and set type to "Expense" for purchases/charges/fees or "Income" for deposits/refunds/card repayments.
+                4. Normalize currency to a 3-letter code (default to $defaultCurrency if omitted).
+                5. Map each row to the closest primary category enum and include the issuer/card name in detected_account_hint if visible (e.g. TF Bank Mastercard Gold, Extrakarte).
+            """.trimIndent()
+
+            val response = withTimeout(60_000L) {
+                statementModel.generateContent(
+                    content {
+                        inlineData(pdfBytes, "application/pdf")
+                        text(prompt)
+                    }
+                )
+            }
+
+            val rawJson = response.text
+                ?: return@withContext Result.failure(IllegalStateException("Gemini returned an empty response for the PDF statement."))
+
+            val json = JSONObject(rawJson)
+            val accountHint = if (json.isNull("detected_account_hint")) null else {
+                json.optString("detected_account_hint", "").trim().takeIf { it.isNotEmpty() }
+            }
+            val arr = json.optJSONArray("transactions") ?: JSONArray()
+            val rows = buildList {
+                for (i in 0 until arr.length()) {
+                    val obj = arr.optJSONObject(i) ?: continue
+                    val amount = abs(obj.optDouble("amount", 0.0))
+                    if (amount.isNaN() || amount < 0.005) continue
+                    val rawDate = obj.optString("date", fallbackDateIso)
+                    val dateIso = StatementParser.normalizeDateToIso(rawDate, fallbackDateIso) ?: fallbackDateIso
+                    val merchant = obj.optString("merchant", "Statement Entry").trim().ifBlank { "Statement Entry" }.take(80)
+                    val currency = obj.optString("currency", defaultCurrency).trim().ifBlank { defaultCurrency }.take(8)
+                    val rawType = obj.optString("type", "Expense")
+                    val txType = if (rawType.equals("Income", ignoreCase = true)) TxType.INCOME else TxType.EXPENSE
+                    val rawCat = obj.optString("category", "Other")
+                    val category = if (rawCat in primaryCategories) rawCat else StatementParser.inferCategory(merchant, rawCat, txType)
+                    val note = if (obj.isNull("note")) "PDF statement import" else {
+                        obj.optString("note", "PDF statement import").trim().ifBlank { "PDF statement import" }.take(180)
+                    }
+
+                    add(
+                        ImportedStatementRow(
+                            id = "pdf_${i}_${dateIso}_$amount",
+                            dateIso = dateIso,
+                            merchant = merchant,
+                            amount = amount,
+                            currency = currency,
+                            txType = txType.name,
+                            categoryName = category,
+                            subcategory = "PDF Statement",
+                            note = note,
+                            selected = true
+                        )
+                    )
+                }
+            }
+
+            if (rows.isEmpty()) {
+                return@withContext Result.failure(
+                    IllegalStateException("No transactions could be extracted from this PDF statement.")
+                )
+            }
+            Result.success(accountHint to rows)
+        } catch (e: TimeoutCancellationException) {
+            Log.e(TAG, "PDF statement parsing timed out", e)
+            Result.failure(IllegalStateException("PDF statement extraction timed out after 60 seconds. Please try again."))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "PDF statement extraction failed", e)
+            Result.failure(IllegalStateException(formatAiTokenError(e), e))
         }
     }
 
@@ -247,6 +395,8 @@ object ReceiptAiService {
         accountNames: List<String>
     ): Result<ExtractedReceiptResult> = withContext(Dispatchers.IO) {
         try {
+            require(audioBytes.isNotEmpty()) { "Audio recording is empty." }
+            verifyAppCheckAndAuthState()
             val prompt = buildVoiceSystemPrompt(defaultCurrency, todayIso, yesterdayIso, accountNames)
             val response = withTimeout(60_000L) {
                 voiceModel.generateContent(
@@ -266,7 +416,9 @@ object ReceiptAiService {
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Voice audio processing failed", e)
-            Result.failure(e)
+            Result.failure(IllegalStateException(formatAiTokenError(e), e))
+        } finally {
+            audioBytes.fill(0)
         }
     }
 
@@ -278,6 +430,7 @@ object ReceiptAiService {
         accountNames: List<String>
     ): Result<ExtractedReceiptResult> = withContext(Dispatchers.IO) {
         try {
+            verifyAppCheckAndAuthState()
             val prompt = buildVoiceSystemPrompt(defaultCurrency, todayIso, yesterdayIso, accountNames) +
                 "\n\nUser utterance text:\n\"${spokenText.trim()}\""
             val response = withTimeout(60_000L) {
@@ -293,7 +446,7 @@ object ReceiptAiService {
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Voice text processing failed", e)
-            Result.failure(e)
+            Result.failure(IllegalStateException(formatAiTokenError(e), e))
         }
     }
 
@@ -307,6 +460,7 @@ object ReceiptAiService {
         accountNames: List<String>
     ): Result<ExtractedReceiptResult> = withContext(Dispatchers.IO) {
         try {
+            verifyAppCheckAndAuthState()
             val contextJson = JSONObject().apply {
                 put("transaction_type", previous.transactionType)
                 put("merchant", previous.merchant)
@@ -355,7 +509,9 @@ object ReceiptAiService {
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Voice clarification failed", e)
-            Result.failure(e)
+            Result.failure(IllegalStateException(formatAiTokenError(e), e))
+        } finally {
+            followUpAudioBytes?.fill(0)
         }
     }
 
@@ -510,6 +666,18 @@ object ReceiptAiService {
             (height * scale).roundToInt().coerceAtLeast(1),
             true
         )
+    }
+
+    private fun compressBitmapToJpegBytes(bitmap: Bitmap): ByteArray {
+        var quality = 85
+        var bytes: ByteArray
+        do {
+            val out = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out)
+            bytes = out.toByteArray()
+            quality -= 15
+        } while (bytes.size > 4 * 1024 * 1024 && quality >= 40)
+        return bytes
     }
 
     private fun createThumbnailBase64(source: Bitmap): String {
